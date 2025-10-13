@@ -1,0 +1,2995 @@
+// // // // import React, { useEffect, useMemo, useRef, useState } from "react";
+// // // // import { MapContainer, TileLayer, Circle, CircleMarker, useMap, useMapEvents } from "react-leaflet";
+// // // // import L from "leaflet";
+// // // //
+// // // // /**
+// // // //  * OSM Radius Zones Demo (no backend)
+// // // //  * - Add zones: pick point by search or map click, set radius in meters, name, color → Save
+// // // //  * - Check mode: pick a point and see which zones contain it
+// // // //  * - Zones persist in localStorage, up to 200
+// // // //  * - Export/Import JSON
+// // // //  * - Uses Nominatim for geocoding
+// // // //  */
+// // // //
+// // // // /* ---------------- helpers ---------------- */
+// // // // const ZONES_KEY = "osm-radius-zones.v1";
+// // // // const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
+// // // // const fmtLatLng = (p) => p ? `${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}` : "—";
+// // // // const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+// // // //
+// // // // function loadZones() {
+// // // //     try { const raw = localStorage.getItem(ZONES_KEY); return raw ? JSON.parse(raw) : []; } catch { return []; }
+// // // // }
+// // // // function saveZones(list) {
+// // // //     try { localStorage.setItem(ZONES_KEY, JSON.stringify(list)); } catch {}
+// // // // }
+// // // //
+// // // // function distanceMeters(a, b) {
+// // // //     // Leaflet precise geodesic distance
+// // // //     return L.latLng(a.lat, a.lng).distanceTo(L.latLng(b.lat, b.lng));
+// // // // }
+// // // // function pointInZone(pt, z) { return distanceMeters(pt, {lat:z.lat, lng:z.lng}) <= (z.radius_m||0); }
+// // // //
+// // // // /* Inject Leaflet CSS once */
+// // // // function useLeafletCSS() {
+// // // //     useEffect(()=>{
+// // // //         const id = "leaflet-css";
+// // // //         if (!document.getElementById(id)) {
+// // // //             const link = document.createElement("link");
+// // // //             link.id = id;
+// // // //             link.rel = "stylesheet";
+// // // //             link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+// // // //             link.integrity = "sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=";
+// // // //             link.crossOrigin = "";
+// // // //             document.head.appendChild(link);
+// // // //         }
+// // // //     },[]);
+// // // // }
+// // // //
+// // // // /* ---------------- map helpers ---------------- */
+// // // // function FitToAll({ zones, candidate, probe }) {
+// // // //     const map = useMap();
+// // // //     useEffect(()=>{
+// // // //         const layers = [];
+// // // //         zones.filter(z=>z.visible!==false).forEach(z=>{
+// // // //             layers.push(L.circle([z.lat, z.lng], { radius: z.radius_m }));
+// // // //         });
+// // // //         if (candidate) layers.push(L.circleMarker([candidate.lat, candidate.lng]));
+// // // //         if (probe) layers.push(L.circleMarker([probe.lat, probe.lng]));
+// // // //         if (layers.length) {
+// // // //             const group = L.featureGroup(layers);
+// // // //             map.fitBounds(group.getBounds().pad(0.2));
+// // // //         }
+// // // //         // only run when zones count changes first time
+// // // //         // eslint-disable-next-line react-hooks/exhaustive-deps
+// // // //     }, []);
+// // // //     return null;
+// // // // }
+// // // //
+// // // // function MapClicks({ mode, onPick }) {
+// // // //     useMapEvents({
+// // // //         click(e){ onPick({ lat: e.latlng.lat, lng: e.latlng.lng }); }
+// // // //     });
+// // // //     return null;
+// // // // }
+// // // //
+// // // // /* ---------------- geocoding ---------------- */
+// // // // async function geocodeNominatim(q) {
+// // // //     const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&accept-language=hy,ru,en&q=${encodeURIComponent(q)}`;
+// // // //     const res = await fetch(url, { headers: { "Accept": "application/json" } });
+// // // //     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+// // // //     const data = await res.json();
+// // // //     return data.map(x => ({
+// // // //         lat: parseFloat(x.lat),
+// // // //         lng: parseFloat(x.lon),
+// // // //         label: x.display_name
+// // // //     }));
+// // // // }
+// // // //
+// // // // /* ---------------- UI ---------------- */
+// // // // export default function App(){
+// // // //     useLeafletCSS();
+// // // //
+// // // //     const [mode, setMode] = useState("add"); // "add" | "check"
+// // // //     const [zones, setZones] = useState(()=> loadZones());
+// // // //
+// // // //     // Add-mode state
+// // // //     const [name, setName] = useState("");
+// // // //     const [radius, setRadius] = useState(3000); // meters
+// // // //     const [color, setColor] = useState("#10b981");
+// // // //     const [candidate, setCandidate] = useState(null); // {lat,lng}
+// // // //     const [searchQ, setSearchQ] = useState("");
+// // // //     const [searchRes, setSearchRes] = useState([]);
+// // // //     const [searchBusy, setSearchBusy] = useState(false);
+// // // //
+// // // //     // Check-mode state
+// // // //     const [probe, setProbe] = useState(null);
+// // // //     const matches = useMemo(()=>{
+// // // //         if (!probe) return [];
+// // // //         return zones.filter(z=>z.visible!==false).filter(z => pointInZone(probe, z));
+// // // //     }, [probe, zones]);
+// // // //
+// // // //     // persist
+// // // //     useEffect(()=>{ saveZones(zones); }, [zones]);
+// // // //
+// // // //     // guard 200 max
+// // // //     const canAdd = zones.length < 200;
+// // // //
+// // // //     async function doSearch(){
+// // // //         if (!searchQ.trim()) { setSearchRes([]); return; }
+// // // //         setSearchBusy(true);
+// // // //         try { setSearchRes(await geocodeNominatim(searchQ.trim())); }
+// // // //         catch(e){ alert("Геокодер не ответил. Попробуйте позже или кликните по карте."); }
+// // // //         finally { setSearchBusy(false); }
+// // // //     }
+// // // //
+// // // //     function addZone(){
+// // // //         if (!canAdd) { alert("Достигнут лимит 200 зон"); return; }
+// // // //         if (!candidate) { alert("Выберите точку на карте или через поиск"); return; }
+// // // //         const r = clamp(Number(radius)||0, 1, 1_000_000); // 1 м .. 1000 км
+// // // //         const z = {
+// // // //             id: uid(),
+// // // //             name: name.trim() || `Зона ${zones.length+1}`,
+// // // //             lat: candidate.lat,
+// // // //             lng: candidate.lng,
+// // // //             radius_m: r,
+// // // //             color,
+// // // //             visible: true,
+// // // //             created_at: new Date().toISOString()
+// // // //         };
+// // // //         setZones(prev => [z, ...prev]);
+// // // //     }
+// // // //
+// // // //     function removeZone(id){ setZones(prev => prev.filter(z=>z.id!==id)); }
+// // // //     function toggleZone(id){ setZones(prev => prev.map(z=> z.id===id ? {...z, visible: !z.visible} : z)); }
+// // // //     function showAll(v){ setZones(prev => prev.map(z=>({...z, visible: v}))); }
+// // // //     function clearAll(){ if (confirm("Удалить все зоны?")) setZones([]); }
+// // // //
+// // // //     async function exportJSON(){
+// // // //         const text = JSON.stringify(zones, null, 2);
+// // // //         try { await navigator.clipboard.writeText(text); alert("Скопировано в буфер обмена"); }
+// // // //         catch {
+// // // //             // fallback: offer download
+// // // //             const blob = new Blob([text], {type:"application/json"});
+// // // //             const url = URL.createObjectURL(blob);
+// // // //             const a = document.createElement("a");
+// // // //             a.href = url; a.download = "zones.json"; a.click();
+// // // //             URL.revokeObjectURL(url);
+// // // //         }
+// // // //     }
+// // // //
+// // // //     function importJSON(e){
+// // // //         const file = e.target.files?.[0];
+// // // //         if (!file) return;
+// // // //         const reader = new FileReader();
+// // // //         reader.onload = () => {
+// // // //             try {
+// // // //                 const parsed = JSON.parse(String(reader.result||"[]"));
+// // // //                 if (!Array.isArray(parsed)) throw new Error("Формат");
+// // // //                 const sanitized = parsed.slice(0,200).map(x=>({
+// // // //                     id: x.id || uid(),
+// // // //                     name: String(x.name||"Без имени"),
+// // // //                     lat: Number(x.lat), lng: Number(x.lng),
+// // // //                     radius_m: clamp(Number(x.radius_m)||0,1,1_000_000),
+// // // //                     color: String(x.color||"#10b981"),
+// // // //                     visible: x.visible!==false,
+// // // //                     created_at: x.created_at || new Date().toISOString()
+// // // //                 })).filter(x=> Number.isFinite(x.lat) && Number.isFinite(x.lng));
+// // // //                 setZones(sanitized);
+// // // //             } catch { alert("Не удалось импортировать JSON"); }
+// // // //         };
+// // // //         reader.readAsText(file);
+// // // //         // reset input for re-import
+// // // //         e.target.value = "";
+// // // //     }
+// // // //
+// // // //     /* dynamic highlight for matches */
+// // // //     const matchIds = useMemo(()=> new Set(matches.map(m=>m.id)), [matches]);
+// // // //
+// // // //     /* -------- layout -------- */
+// // // //     return (
+// // // //         <div className="flex h-screen w-full bg-slate-50">
+// // // //             {/* Left panel */}
+// // // //             <div className="w-full md:w-96 shrink-0 border-r border-slate-200 bg-white/80 backdrop-blur p-4 overflow-y-auto">
+// // // //                 <h1 className="text-xl font-bold text-slate-900">OSM · Радиусные зоны</h1>
+// // // //                 <p className="text-xs text-slate-500 mt-1">Без сервера. Хранение в <span className="font-mono">localStorage</span>. До 200 зон.</p>
+// // // //
+// // // //                 {/* Mode switch */}
+// // // //                 <div className="mt-4 grid grid-cols-2 gap-2">
+// // // //                     <button onClick={()=>setMode("add")} className={`py-2 rounded-xl text-sm font-semibold border ${mode==='add'? 'bg-emerald-600 text-white border-emerald-600':'bg-white hover:bg-slate-50 border-slate-200'}`}>Добавить зону</button>
+// // // //                     <button onClick={()=>setMode("check")} className={`py-2 rounded-xl text-sm font-semibold border ${mode==='check'? 'bg-cyan-600 text-white border-cyan-600':'bg-white hover:bg-slate-50 border-slate-200'}`}>Проверка точки</button>
+// // // //                 </div>
+// // // //
+// // // //                 {mode === 'add' ? (
+// // // //                     <div className="mt-4 space-y-3">
+// // // //                         <div>
+// // // //                             <label className="text-xs font-medium text-slate-600">Поиск адреса (Nominatim)</label>
+// // // //                             <div className="mt-1 flex gap-2">
+// // // //                                 <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder="введите адрес..." className="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500" />
+// // // //                                 <button onClick={doSearch} disabled={searchBusy} className="px-3 py-2 rounded-xl text-sm font-semibold border border-slate-200 bg-white hover:bg-slate-50">Найти</button>
+// // // //                             </div>
+// // // //                             {searchRes.length>0 && (
+// // // //                                 <div className="mt-2 max-h-40 overflow-auto rounded-xl border border-slate-200 divide-y">
+// // // //                                     {searchRes.map((r,i)=> (
+// // // //                                         <button key={i} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50" onClick={()=>{ setCandidate({lat:r.lat,lng:r.lng}); setSearchRes([]); }}>
+// // // //                                             {r.label}
+// // // //                                             <div className="text-xs text-slate-500">{r.lat.toFixed(6)}, {r.lng.toFixed(6)}</div>
+// // // //                                         </button>
+// // // //                                     ))}
+// // // //                                 </div>
+// // // //                             )}
+// // // //                         </div>
+// // // //
+// // // //                         <div className="grid grid-cols-2 gap-2">
+// // // //                             <div>
+// // // //                                 <label className="text-xs font-medium text-slate-600">Имя зоны</label>
+// // // //                                 <input value={name} onChange={e=>setName(e.target.value)} placeholder="например, Офис" className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500" />
+// // // //                             </div>
+// // // //                             <div>
+// // // //                                 <label className="text-xs font-medium text-slate-600">Цвет</label>
+// // // //                                 <input type="color" value={color} onChange={e=>setColor(e.target.value)} className="mt-1 w-full h-[38px] rounded-xl border border-slate-300" />
+// // // //                             </div>
+// // // //                         </div>
+// // // //
+// // // //                         <div className="grid grid-cols-2 gap-2">
+// // // //                             <div>
+// // // //                                 <label className="text-xs font-medium text-slate-600">Радиус, м</label>
+// // // //                                 <input type="number" min={1} step={1} value={radius} onChange={e=> setRadius(e.target.value)} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500" />
+// // // //                             </div>
+// // // //                             <div>
+// // // //                                 <label className="text-xs font-medium text-slate-600">Точка</label>
+// // // //                                 <div className="mt-1 text-sm py-2 px-3 rounded-xl border border-slate-200 bg-slate-50">{fmtLatLng(candidate)}</div>
+// // // //                             </div>
+// // // //                         </div>
+// // // //
+// // // //                         <div className="flex gap-2">
+// // // //                             <button onClick={addZone} className="px-3 py-2 rounded-xl text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700">Сохранить зону</button>
+// // // //                             <button onClick={()=>setCandidate(null)} className="px-3 py-2 rounded-xl text-sm font-semibold border border-slate-200 bg-white hover:bg-slate-50">Сбросить точку</button>
+// // // //                         </div>
+// // // //
+// // // //                         <p className="text-xs text-slate-500">Подсказка: клик по карте ставит точку. Затем задайте радиус и сохраните.</p>
+// // // //                     </div>
+// // // //                 ) : (
+// // // //                     <div className="mt-4 space-y-3">
+// // // //                         <div>
+// // // //                             <label className="text-xs font-medium text-slate-600">Поиск адреса</label>
+// // // //                             <div className="mt-1 flex gap-2">
+// // // //                                 <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder="введите адрес..." className="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-cyan-500" />
+// // // //                                 <button onClick={doSearch} disabled={searchBusy} className="px-3 py-2 rounded-xl text-sm font-semibold border border-slate-200 bg-white hover:bg-slate-50">Найти</button>
+// // // //                             </div>
+// // // //                             {searchRes.length>0 && (
+// // // //                                 <div className="mt-2 max-h-40 overflow-auto rounded-xl border border-slate-200 divide-y">
+// // // //                                     {searchRes.map((r,i)=> (
+// // // //                                         <button key={i} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50" onClick={()=>{ setProbe({lat:r.lat,lng:r.lng}); setSearchRes([]); }}>
+// // // //                                             {r.label}
+// // // //                                             <div className="text-xs text-slate-500">{r.lat.toFixed(6)}, {r.lng.toFixed(6)}</div>
+// // // //                                         </button>
+// // // //                                     ))}
+// // // //                                 </div>
+// // // //                             )}
+// // // //                         </div>
+// // // //
+// // // //                         <div className="grid grid-cols-2 gap-2">
+// // // //                             <div>
+// // // //                                 <label className="text-xs font-medium text-slate-600">Проверяемая точка</label>
+// // // //                                 <div className="mt-1 text-sm py-2 px-3 rounded-xl border border-slate-200 bg-slate-50">{fmtLatLng(probe)}</div>
+// // // //                             </div>
+// // // //                             <div className="flex items-end">
+// // // //                                 <button onClick={()=>setProbe(null)} className="h-[38px] w-full px-3 py-2 rounded-xl text-sm font-semibold border border-slate-200 bg-white hover:bg-slate-50">Сбросить</button>
+// // // //                             </div>
+// // // //                         </div>
+// // // //
+// // // //                         <div className="mt-1">
+// // // //                             <div className="text-xs font-medium text-slate-600 mb-1">Результат</div>
+// // // //                             {probe ? (
+// // // //                                 matches.length ? (
+// // // //                                     <ul className="space-y-1">
+// // // //                                         {matches.map(m=> (
+// // // //                                             <li key={m.id} className="text-sm flex items-center gap-2">
+// // // //                                                 <span className="inline-block w-3 h-3 rounded-full" style={{background:m.color}} />
+// // // //                                                 <span className="font-medium">{m.name}</span>
+// // // //                                                 <span className="text-xs text-slate-500">({Math.round(distanceMeters(probe,{lat:m.lat,lng:m.lng}))} м от центра)</span>
+// // // //                                             </li>
+// // // //                                         ))}
+// // // //                                     </ul>
+// // // //                                 ) : (
+// // // //                                     <div className="text-sm text-slate-500">Не попадает ни в одну зону</div>
+// // // //                                 )
+// // // //                             ) : <div className="text-sm text-slate-500">Кликните по карте или найдите адрес</div>}
+// // // //                         </div>
+// // // //
+// // // //                         <p className="text-xs text-slate-500">Подсказка: в этом режиме клик по карте ставит точку проверки.</p>
+// // // //                     </div>
+// // // //                 )}
+// // // //
+// // // //                 {/* Zones list */}
+// // // //                 <div className="mt-6">
+// // // //                     <div className="flex items-center justify-between">
+// // // //                         <h2 className="text-sm font-semibold text-slate-700">Зоны <span className="text-slate-400">({zones.length})</span></h2>
+// // // //                         <div className="flex gap-2">
+// // // //                             <button onClick={()=>showAll(true)} className="text-xs px-2 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50">Показать все</button>
+// // // //                             <button onClick={()=>showAll(false)} className="text-xs px-2 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50">Скрыть все</button>
+// // // //                         </div>
+// // // //                     </div>
+// // // //                     <div className="mt-2 space-y-2">
+// // // //                         {zones.length===0 && <div className="text-sm text-slate-500">Пока пусто</div>}
+// // // //                         {zones.map(z=> (
+// // // //                             <div key={z.id} className="p-2 rounded-xl border border-slate-200 bg-white flex items-center justify-between gap-2">
+// // // //                                 <div className="flex items-center gap-2 min-w-0">
+// // // //                                     <span className="inline-block w-4 h-4 rounded-full" style={{background:z.color, opacity: z.visible?1:0.3}} />
+// // // //                                     <div className="min-w-0">
+// // // //                                         <div className={`text-sm font-medium truncate ${matchIds.has(z.id)?'text-cyan-700':''}`}>{z.name}</div>
+// // // //                                         <div className="text-xs text-slate-500">{z.radius_m} м · {z.lat.toFixed(5)}, {z.lng.toFixed(5)}</div>
+// // // //                                     </div>
+// // // //                                 </div>
+// // // //                                 <div className="flex items-center gap-2 shrink-0">
+// // // //                                     <button onClick={()=>toggleZone(z.id)} className="text-xs px-2 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50">{z.visible? 'Скрыть':'Показать'}</button>
+// // // //                                     <button onClick={()=>removeZone(z.id)} className="text-xs px-2 py-1 rounded-lg border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700">Удалить</button>
+// // // //                                 </div>
+// // // //                             </div>
+// // // //                         ))}
+// // // //                     </div>
+// // // //                     {zones.length>0 && (
+// // // //                         <div className="mt-3 flex items-center gap-2">
+// // // //                             <button onClick={exportJSON} className="text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50">Экспорт JSON</button>
+// // // //                             <label className="text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 cursor-pointer">
+// // // //                                 Импорт JSON
+// // // //                                 <input type="file" accept="application/json" onChange={importJSON} className="hidden" />
+// // // //                             </label>
+// // // //                             <button onClick={clearAll} className="ml-auto text-xs px-3 py-2 rounded-lg border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700">Очистить всё</button>
+// // // //                         </div>
+// // // //                     )}
+// // // //                 </div>
+// // // //             </div>
+// // // //
+// // // //             {/* Map */}
+// // // //             <div className="flex-1 relative">
+// // // //                 <MapContainer center={[40.1776,44.5126]} zoom={12} className="absolute inset-0" preferCanvas>
+// // // //                     <TileLayer
+// // // //                         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+// // // //                         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+// // // //                     />
+// // // //
+// // // //                     {/* existing zones */}
+// // // //                     {zones.filter(z=>z.visible!==false).map(z=> (
+// // // //                         <Circle key={z.id} center={[z.lat, z.lng]} radius={z.radius_m} pathOptions={{ color: z.color, fillColor: z.color, fillOpacity: matchIds.has(z.id)?0.25:0.12, weight: matchIds.has(z.id)?3:1, opacity: 0.9 }} />
+// // // //                     ))}
+// // // //
+// // // //                     {/* candidate / probe markers as circle markers to avoid default icon assets */}
+// // // //                     {mode==='add' && candidate && (
+// // // //                         <CircleMarker center={[candidate.lat, candidate.lng]} radius={6} pathOptions={{ color: '#0ea5e9', weight: 2, fillOpacity: 0.9 }} />
+// // // //                     )}
+// // // //                     {mode==='check' && probe && (
+// // // //                         <CircleMarker center={[probe.lat, probe.lng]} radius={6} pathOptions={{ color: '#06b6d4', weight: 2, fillOpacity: 0.9 }} />
+// // // //                     )}
+// // // //
+// // // //                     <MapClicks mode={mode} onPick={(pt)=> mode==='add' ? setCandidate(pt) : setProbe(pt)} />
+// // // //                     <FitToAll zones={zones} candidate={candidate} probe={probe} />
+// // // //                 </MapContainer>
+// // // //
+// // // //                 {/* Small legend */}
+// // // //                 <div className="absolute left-2 bottom-2 bg-white/90 backdrop-blur border border-slate-200 rounded-xl p-2 text-xs text-slate-700 shadow-sm">
+// // // //                     <div><span className="inline-block w-3 h-3 rounded-full bg-emerald-500 mr-1"/>Зоны</div>
+// // // //                     <div><span className="inline-block w-3 h-3 rounded-full bg-sky-500 mr-1"/>Точки</div>
+// // // //                     <div className="text-[10px] text-slate-500 mt-1">Клик по карте: {mode==='add'? 'ставит точку для новой зоны':'ставит точку проверки'}</div>
+// // // //                 </div>
+// // // //             </div>
+// // // //         </div>
+// // // //     );
+// // // // }
+// // //
+// // //  import React, { useEffect, useMemo, useRef, useState } from "react";
+// // // import { MapContainer, TileLayer, Polyline, Circle, CircleMarker, useMap, useMapEvents } from "react-leaflet";
+// // // import L from "leaflet";
+// // //
+// // // /**
+// // //  * Corridor Planner Demo: Vanadzor → Yerevan (OSRM + OSM)
+// // //  * Цель:
+// // //  *  - Строим магистральный маршрут P (OSRM)
+// // //  *  - Формируем «коридор» вокруг P: urban=400 м у городов, rural=800 м по трассе
+// // //  *  - «Заявки» (pickup+drop) разрешаем, если: пешком ≤ R_WALK к коридору/гейту, или крюк вписывается в R_DETOUR
+// // //  *  - Сортируем посадки/высадки строго по прогрессу вдоль P без зигзагов
+// // //  *  - Показываем план остановок и ETA
+// // //  *  - Без бэкенда; кеш в localStorage
+// // //  */
+// // //
+// // // /* ---------------- constants ---------------- */
+// // // const LS_KEY = "corridor-demo.v1";
+// // // const R_WALK = 350; // м
+// // // const URBAN_R = 400; // м
+// // // const RURAL_R = 800; // м
+// // // const URBAN_EDGE = 8000; // м от начала/конца считаем городской коридор
+// // // const R_DETOUR_PCT = 0.08; // 8% от длины маршрута
+// // // const R_DETOUR_CAP = 4000; // м
+// // // const MAX_STOPS_PICK = 4;
+// // // const MAX_STOPS_DROP = 4;
+// // //
+// // // // Старт/финиш (Vanadzор → Yerevan)
+// // // const START = { name: "Vanadzor Center", lat: 40.8117, lng: 44.4935 };
+// // // const FINISH = { name: "Yerevan Republic Sq", lat: 40.1772, lng: 44.5125 };
+// // //
+// // // // «Гейты» — фиксированные посадки/высадки
+// // // const GATES = [
+// // //     // Vanadzor
+// // //     { city: "Vanadzor", name: "Center",       lat: 40.8117, lng: 44.4935 },
+// // //     { city: "Vanadzor", name: "Station",      lat: 40.8094, lng: 44.4981 },
+// // //     { city: "Vanadzor", name: "Shirakatsi",   lat: 40.8079, lng: 44.4860 },
+// // //     { city: "Vanadzor", name: "Taron",        lat: 40.8198, lng: 44.4867 },
+// // //     // Yerevan
+// // //     { city: "Yerevan",  name: "Davtashen Br.",lat: 40.2108, lng: 44.4852 },
+// // //     { city: "Yerevan",  name: "Barekamutyun", lat: 40.2041, lng: 44.5128 },
+// // //     { city: "Yerevan",  name: "Sasuntsi David", lat: 40.1609, lng: 44.5163 },
+// // //     { city: "Yerevan",  name: "Republic Sq",  lat: 40.1772, lng: 44.5125 },
+// // //     { city: "Yerevan",  name: "Erebuni",      lat: 40.1461, lng: 44.5212 },
+// // //     { city: "Yerevan",  name: "Arin Berd",    lat: 40.1170, lng: 44.5690 },
+// // // ];
+// // //
+// // // /* ---------------- utils ---------------- */
+// // // const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
+// // // const fmtLatLng = (p) => (p ? `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}` : "—");
+// // // const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+// // // const metersToKm = (m) => (m / 1000).toFixed(1);
+// // // function loadLS() { try { const raw = localStorage.getItem(LS_KEY); return raw ? JSON.parse(raw) : null; } catch { return null; } }
+// // // function saveLS(obj) { try { localStorage.setItem(LS_KEY, JSON.stringify(obj)); } catch {} }
+// // //
+// // // function distanceMeters(a, b) { return L.latLng(a.lat, a.lng).distanceTo(L.latLng(b.lat, b.lng)); }
+// // // function nearestGate(pt) {
+// // //     let best = null, bestD = Infinity;
+// // //     for (const g of GATES) {
+// // //         const d = distanceMeters(pt, g);
+// // //         if (d < bestD) { bestD = d; best = g; }
+// // //     }
+// // //     return { gate: best, dist: bestD };
+// // // }
+// // //
+// // // /* --- Geocoding (Nominatim) --- */
+// // // async function geocode(q) {
+// // //     const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&accept-language=hy,ru,en&q=${encodeURIComponent(q)}`;
+// // //     const r = await fetch(url, { headers: { Accept: "application/json" } });
+// // //     if (!r.ok) throw new Error(`HTTP ${r.status}`);
+// // //     const data = await r.json();
+// // //     return data.map((x) => ({ lat: +x.lat, lng: +x.lon, label: x.display_name }));
+// // // }
+// // //
+// // // /* --- OSRM route --- */
+// // // async function fetchRoute(a, b) {
+// // //     const u = `https://router.project-osrm.org/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=full&geometries=geojson`;
+// // //     const r = await fetch(u);
+// // //     if (!r.ok) throw new Error(`OSRM ${r.status}`);
+// // //     const j = await r.json();
+// // //     const route = j.routes?.[0];
+// // //     if (!route) throw new Error("No route");
+// // //     const coords = route.geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
+// // //     return {
+// // //         coords,
+// // //         distance_m: route.distance,
+// // //         duration_s: route.duration,
+// // //     };
+// // // }
+// // //
+// // // /* --- geometry on polyline --- */
+// // // function projectMercator(ll) { return L.CRS.EPSG3857.project(L.latLng(ll.lat, ll.lng)); } // meters in WebMercator
+// // // function polylineCumulative(route) {
+// // //     const cum = [0];
+// // //     for (let i = 1; i < route.length; i++) {
+// // //         cum[i] = cum[i - 1] + distanceMeters(route[i - 1], route[i]);
+// // //     }
+// // //     return cum; // same length as route
+// // // }
+// // // function nearestOnPolyline(pt, route, cum) {
+// // //     // Return: { s, d, proj: {lat,lng}, i, t }
+// // //     const P = projectMercator(pt);
+// // //     let best = { d2: Infinity, s: 0, proj: route[0], i: 0, t: 0 };
+// // //     for (let i = 0; i < route.length - 1; i++) {
+// // //         const A = projectMercator(route[i]);
+// // //         const B = projectMercator(route[i + 1]);
+// // //         const ABx = B.x - A.x, ABy = B.y - A.y;
+// // //         const APx = P.x - A.x, APy = P.y - A.y;
+// // //         const ab2 = ABx * ABx + ABy * ABy;
+// // //         const t = ab2 === 0 ? 0 : clamp((APx * ABx + APy * ABy) / ab2, 0, 1);
+// // //         const Qx = A.x + t * ABx, Qy = A.y + t * ABy;
+// // //         const dx = P.x - Qx, dy = P.y - Qy;
+// // //         const d2 = dx * dx + dy * dy;
+// // //         if (d2 < best.d2) {
+// // //             const segLen = distanceMeters(route[i], route[i + 1]);
+// // //             const s = cum[i] + t * segLen;
+// // //             best = { d2, s, proj: L.CRS.EPSG3857.unproject(L.point(Qx, Qy)), i, t };
+// // //         }
+// // //     }
+// // //     return { s: best.s, d: Math.sqrt(best.d2), proj: { lat: best.proj.lat, lng: best.proj.lng }, i: best.i, t: best.t };
+// // // }
+// // //
+// // // function corridorRadiusAt(s, total) {
+// // //     if (s <= URBAN_EDGE || s >= total - URBAN_EDGE) return URBAN_R;
+// // //     return RURAL_R;
+// // // }
+// // //
+// // // /* ---------------- Leaflet CSS inject ---------------- */
+// // // function useLeafletCSS() {
+// // //     useEffect(() => {
+// // //         const id = "leaflet-css";
+// // //         if (!document.getElementById(id)) {
+// // //             const link = document.createElement("link");
+// // //             link.id = id;
+// // //             link.rel = "stylesheet";
+// // //             link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+// // //             link.integrity = "sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=";
+// // //             link.crossOrigin = "";
+// // //             document.head.appendChild(link);
+// // //         }
+// // //     }, []);
+// // // }
+// // //
+// // // /* ---------------- runtime tests ---------------- */
+// // // (function tests(){
+// // //     try {
+// // //         const r = [{lat:0,lng:0},{lat:0,lng:0.01}];
+// // //         const cum = polylineCumulative(r);
+// // //         const q = nearestOnPolyline({lat:0,lng:0.005}, r, cum);
+// // //         console.assert(Math.abs(q.s - (distanceMeters(r[0], {lat:0,lng:0.005}))) < 50, "proj s ~ half seg");
+// // //         console.assert(q.d < 5, "d ~ 0 on line");
+// // //     } catch(e){ console.warn("tests failed:", e); }
+// // // })();
+// // //
+// // // /* ---------------- map helpers ---------------- */
+// // // function MapClicks({ mode, setPickupLL, setDropLL }) {
+// // //     useMapEvents({
+// // //         click(e) {
+// // //             if (mode === "pickup") setPickupLL({ lat: e.latlng.lat, lng: e.latlng.lng });
+// // //             if (mode === "drop") setDropLL({ lat: e.latlng.lat, lng: e.latlng.lng });
+// // //         },
+// // //     });
+// // //     return null;
+// // // }
+// // //
+// // // function FitAll({ route, pickups, drops }) {
+// // //     const map = useMap();
+// // //     useEffect(() => {
+// // //         const layers = [];
+// // //         if (route?.length) layers.push(L.polyline(route.map(p=>[p.lat,p.lng])));
+// // //         pickups?.forEach(p=> layers.push(L.circleMarker([p.lat,p.lng])));
+// // //         drops?.forEach(p=> layers.push(L.circleMarker([p.lat,p.lng])));
+// // //         if (layers.length) {
+// // //             const g = L.featureGroup(layers);
+// // //             try { map.fitBounds(g.getBounds().pad(0.2)); } catch {}
+// // //         }
+// // //     }, [map, route, pickups, drops]);
+// // //     return null;
+// // // }
+// // //
+// // // /* ---------------- UI ---------------- */
+// // // export default function App(){
+// // //     useLeafletCSS();
+// // //
+// // //     // route state
+// // //     const [route, setRoute] = useState([]); // [{lat,lng}]
+// // //     const [routeDist, setRouteDist] = useState(0);
+// // //     const [routeTime, setRouteTime] = useState(0); // sec
+// // //     const [cum, setCum] = useState([]);
+// // //
+// // //     // corridor circles (approx buffer)
+// // //     const [corridor, setCorridor] = useState([]); // [{lat,lng,radius}]
+// // //
+// // //     // requests and plan
+// // //     const [requests, setRequests] = useState(() => loadLS()?.requests || []);
+// // //     const [stopsPick, setStopsPick] = useState(() => loadLS()?.stopsPick || []);
+// // //     const [stopsDrop, setStopsDrop] = useState(() => loadLS()?.stopsDrop || []);
+// // //     const [detourTotal, setDetourTotal] = useState(() => loadLS()?.detourTotal || 0);
+// // //
+// // //     // inputs
+// // //     const [mode, setMode] = useState("pickup"); // pick by map click: "pickup" | "drop"
+// // //     const [pickupLL, setPickupLL] = useState(null);
+// // //     const [dropLL, setDropLL] = useState(null);
+// // //     const [q1, setQ1] = useState("");
+// // //     const [q2, setQ2] = useState("");
+// // //     const [busyGeo, setBusyGeo] = useState(false);
+// // //     const [lastDecision, setLastDecision] = useState(null);
+// // //
+// // //     // init route
+// // //     useEffect(()=>{
+// // //         (async ()=>{
+// // //             try{
+// // //                 const r = await fetchRoute(START, FINISH);
+// // //                 setRoute(r.coords);
+// // //                 setRouteDist(r.distance_m);
+// // //                 setRouteTime(r.duration_s);
+// // //                 const c = polylineCumulative(r.coords);
+// // //                 setCum(c);
+// // //                 // Build corridor as chain of circles
+// // //                 const step = 1000; // 1 км
+// // //                 const circles = [];
+// // //                 for (let s = 0; s <= r.distance_m; s += step) {
+// // //                     const pt = pointAtS(r.coords, c, s);
+// // //                     const rad = corridorRadiusAt(s, r.distance_m);
+// // //                     circles.push({ lat: pt.lat, lng: pt.lng, radius: rad });
+// // //                 }
+// // //                 setCorridor(circles);
+// // //             }catch(e){ alert("OSRM недоступен. Попробуйте позже."); }
+// // //         })();
+// // //     },[]);
+// // //
+// // //     // persist
+// // //     useEffect(()=>{ saveLS({requests, stopsPick, stopsDrop, detourTotal}); }, [requests, stopsPick, stopsDrop, detourTotal]);
+// // //
+// // //     async function searchPickup(){ if(!q1.trim()) return; setBusyGeo(true); try{ const r=await geocode(q1.trim()); if(r[0]) setPickupLL(r[0]); } finally{ setBusyGeo(false); } }
+// // //     async function searchDrop(){ if(!q2.trim()) return; setBusyGeo(true); try{ const r=await geocode(q2.trim()); if(r[0]) setDropLL(r[0]); } finally{ setBusyGeo(false); } }
+// // //
+// // //     const detourBudget = useMemo(()=> Math.min(R_DETOUR_CAP, R_DETOUR_PCT * routeDist), [routeDist]);
+// // //
+// // //     function assignRequest(){
+// // //         if (!route.length || !cum.length) { alert("Маршрут не готов"); return; }
+// // //         if (!pickupLL || !dropLL) { alert("Укажите pickup и drop"); return; }
+// // //
+// // //         const projPick = nearestOnPolyline(pickupLL, route, cum);
+// // //         const projDrop = nearestOnPolyline(dropLL, route, cum);
+// // //         const {gate: gatePick, dist: dGatePick} = nearestGate(pickupLL);
+// // //         const {gate: gateDrop, dist: dGateDrop} = nearestGate(dropLL);
+// // //
+// // //         // Решение для pickup
+// // //         let pickStop = null; let addDetour = 0; let pickWalk = Infinity;
+// // //         if (projPick.d <= R_WALK) { // до коридора пешком
+// // //             pickStop = { kind: "corridor", s: projPick.s, pt: projPick.proj, label: `Corridor (${Math.round(projPick.d)} м пешком)` };
+// // //             pickWalk = projPick.d;
+// // //         } else if (dGatePick <= R_WALK) {
+// // //             pickStop = { kind: "gate", s: nearestOnPolyline(gatePick, route, cum).s, pt: gatePick, label: `${gatePick.city} · ${gatePick.name} (${Math.round(dGatePick)} м пешком)` };
+// // //             pickWalk = dGatePick;
+// // //         } else {
+// // //             // индивидуальный подъезд
+// // //             addDetour += 2 * projPick.d; // грубо «туда‑обратно»
+// // //             pickStop = { kind: "home", s: projPick.s, pt: pickupLL, label: `Home pickup (крюк ~ ${Math.round(2*projPick.d)} м)` };
+// // //         }
+// // //
+// // //         // Решение для drop
+// // //         let dropStop = null; let dropWalk = Infinity;
+// // //         if (projDrop.d <= R_WALK) {
+// // //             dropStop = { kind: "corridor", s: projDrop.s, pt: projDrop.proj, label: `Corridor (${Math.round(projDrop.d)} м пешком)` };
+// // //             dropWalk = projDrop.d;
+// // //         } else if (dGateDrop <= R_WALK) {
+// // //             dropStop = { kind: "gate", s: nearestOnPolyline(gateDrop, route, cum).s, pt: gateDrop, label: `${gateDrop.city} · ${gateDrop.name} (${Math.round(dGateDrop)} м пешком)` };
+// // //             dropWalk = dGateDrop;
+// // //         } else {
+// // //             addDetour += 2 * projDrop.d;
+// // //             dropStop = { kind: "home", s: projDrop.s, pt: dropLL, label: `Home drop (крюк ~ ${Math.round(2*projDrop.d)} м)` };
+// // //         }
+// // //
+// // //         // Проверки лимитов
+// // //         const newDetour = detourTotal + addDetour;
+// // //         if (newDetour > detourBudget) {
+// // //             setLastDecision({ ok: false, reason: `Крюк ${Math.round(newDetour)} м > бюджета ${Math.round(detourBudget)} м` });
+// // //             return;
+// // //         }
+// // //         if (stopsPick.length >= MAX_STOPS_PICK) { setLastDecision({ ok:false, reason: `Лимит посадок ${MAX_STOPS_PICK}` }); return; }
+// // //         if (stopsDrop.length >= MAX_STOPS_DROP) { setLastDecision({ ok:false, reason: `Лимит высадок ${MAX_STOPS_DROP}` }); return; }
+// // //
+// // //         // Добавляем заявку
+// // //         const req = { id: uid(), pickup: pickupLL, drop: dropLL, pickStop, dropStop, addDetour };
+// // //         const nextReq = [req, ...requests];
+// // //
+// // //         // Формируем остановки и сортировка по прогрессу
+// // //         const nextPick = sortByS([...stopsPick, { id: req.id+"_p", s: pickStop.s, label: `P#${nextReq.length}: ${pickStop.label}`, pt: pickStop.pt }]);
+// // //         const nextDrop = sortByS([...stopsDrop, { id: req.id+"_d", s: dropStop.s, label: `D#${nextReq.length}: ${dropStop.label}`, pt: dropStop.pt }]);
+// // //
+// // //         // Анти‑backtrack: не допускаем убывание s > 500 м
+// // //         if (hasBacktrack(nextPick) || hasBacktrack(nextDrop)) {
+// // //             setLastDecision({ ok:false, reason: "Появился возврат > 500 м. Заявка в другой рейс." });
+// // //             return;
+// // //         }
+// // //
+// // //         setRequests(nextReq);
+// // //         setStopsPick(nextPick);
+// // //         setStopsDrop(nextDrop);
+// // //         setDetourTotal(newDetour);
+// // //         setLastDecision({ ok:true, reason: `OK: пешком P=${Math.round(pickWalk)} м, D=${Math.round(dropWalk)} м; крюк +${Math.round(addDetour)} м` });
+// // //     }
+// // //
+// // //     function hasBacktrack(stops){
+// // //         for(let i=1;i<stops.length;i++){
+// // //             if (stops[i].s + 500 < stops[i-1].s) return true;
+// // //         }
+// // //         return false;
+// // //     }
+// // //
+// // //     function sortByS(arr){ return arr.sort((a,b)=> a.s - b.s); }
+// // //
+// // //     function resetPlan(){ if(confirm("Очистить план и заявки?")){ setRequests([]); setStopsPick([]); setStopsDrop([]); setDetourTotal(0); setLastDecision(null); } }
+// // //
+// // //     const eta = useMemo(()=>{
+// // //         const base = routeTime; // сек
+// // //         const stops = stopsPick.length + stopsDrop.length;
+// // //         const stopPenalty = stops * 90; // 1.5 мин на остановку
+// // //         const detourPenalty = detourTotal / 10; // ~10 м/с ≈ 36 км/ч
+// // //         const total = base + stopPenalty + detourPenalty;
+// // //         return { base, total, stops, stopPenalty, detourPenalty };
+// // //     }, [routeTime, stopsPick.length, stopsDrop.length, detourTotal]);
+// // //
+// // //     /* -------- render -------- */
+// // //     return (
+// // //         <div className="flex h-screen w-full bg-slate-50">
+// // //             {/* Left panel */}
+// // //             <div className="w-full md:w-[420px] shrink-0 border-r border-slate-200 bg-white/80 backdrop-blur p-4 overflow-y-auto">
+// // //                 <h1 className="text-xl font-bold text-slate-900">Corridor Planner · Vanadzor → Yerevan</h1>
+// // //                 <p className="text-xs text-slate-500 mt-1">Коридор: {URBAN_R} м (урбан, ±{Math.round(URBAN_EDGE/1000)} км у краёв), {RURAL_R} м (rural). Пешком ≤ {R_WALK} м. Крюк ≤ {Math.round(detourBudget)} м.</p>
+// // //
+// // //                 <div className="mt-3 text-xs text-slate-600">
+// // //                     Маршрут: {metersToKm(routeDist)} км · базовое время {Math.round(eta.base/60)} мин.
+// // //                     <div>Остановки: {eta.stops} · крюк: {Math.round(detourTotal)} м · ETA: {Math.round(eta.total/60)} мин.</div>
+// // //                 </div>
+// // //
+// // //                 <div className="mt-4 grid grid-cols-2 gap-2">
+// // //                     <button onClick={()=>setMode("pickup")} className={`py-2 rounded-xl text-sm font-semibold border ${mode==='pickup'? 'bg-emerald-600 text-white border-emerald-600':'bg-white hover:bg-slate-50 border-slate-200'}`}>Выбор pickup</button>
+// // //                     <button onClick={()=>setMode("drop")} className={`py-2 rounded-xl text-sm font-semibold border ${mode==='drop'? 'bg-cyan-600 text-white border-cyan-600':'bg-white hover:bg-slate-50 border-slate-200'}`}>Выбор drop</button>
+// // //                 </div>
+// // //
+// // //                 <div className="mt-3 space-y-3">
+// // //                     <div>
+// // //                         <label className="text-xs font-medium text-slate-600">Pickup адрес</label>
+// // //                         <div className="mt-1 flex gap-2">
+// // //                             <input value={q1} onChange={e=>setQ1(e.target.value)} placeholder="введите адрес…" className="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500" />
+// // //                             <button onClick={searchPickup} disabled={busyGeo} className="px-3 py-2 rounded-xl text-sm font-semibold border border-slate-200 bg-white hover:bg-slate-50">Найти</button>
+// // //                         </div>
+// // //                         <div className="text-xs text-slate-500 mt-1">Точка: {fmtLatLng(pickupLL)} (или клик по карте в режиме «Выбор pickup»)</div>
+// // //                     </div>
+// // //                     <div>
+// // //                         <label className="text-xs font-medium text-slate-600">Drop адрес</label>
+// // //                         <div className="mt-1 flex gap-2">
+// // //                             <input value={q2} onChange={e=>setQ2(e.target.value)} placeholder="введите адрес…" className="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-cyan-500" />
+// // //                             <button onClick={searchDrop} disabled={busyGeo} className="px-3 py-2 rounded-xl text-sm font-semibold border border-slate-200 bg-white hover:bg-slate-50">Найти</button>
+// // //                         </div>
+// // //                         <div className="text-xs text-slate-500 mt-1">Точка: {fmtLatLng(dropLL)} (или клик по карте в режиме «Выбор drop»)</div>
+// // //                     </div>
+// // //                     <div className="flex gap-2">
+// // //                         <button onClick={assignRequest} className="px-3 py-2 rounded-xl text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700">Добавить заявку</button>
+// // //                         <button onClick={resetPlan} className="px-3 py-2 rounded-xl text-sm font-semibold border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700">Очистить план</button>
+// // //                     </div>
+// // //                     {lastDecision && (
+// // //                         <div className={`text-xs px-3 py-2 rounded-xl ${lastDecision.ok? 'bg-emerald-50 text-emerald-700 border border-emerald-200':'bg-rose-50 text-rose-700 border border-rose-200'}`}>{lastDecision.reason}</div>
+// // //                     )}
+// // //                 </div>
+// // //
+// // //                 {/* Plan */}
+// // //                 <div className="mt-5">
+// // //                     <div className="text-sm font-semibold text-slate-700">План остановок</div>
+// // //                     <div className="mt-2 grid grid-cols-2 gap-2">
+// // //                         <div>
+// // //                             <div className="text-xs text-slate-500 mb-1">Посадки ({stopsPick.length}/{MAX_STOPS_PICK})</div>
+// // //                             <ul className="space-y-1">
+// // //                                 {stopsPick.map(s=> (
+// // //                                     <li key={s.id} className="text-xs p-2 rounded-lg border border-slate-200 bg-white">{s.label}<div className="text-[10px] text-slate-400">s={Math.round(s.s)} м · {fmtLatLng(s.pt)}</div></li>
+// // //                                 ))}
+// // //                             </ul>
+// // //                         </div>
+// // //                         <div>
+// // //                             <div className="text-xs text-slate-500 mb-1">Высадки ({stopsDrop.length}/{MAX_STOPS_DROP})</div>
+// // //                             <ul className="space-y-1">
+// // //                                 {stopsDrop.map(s=> (
+// // //                                     <li key={s.id} className="text-xs p-2 rounded-lg border border-slate-200 bg-white">{s.label}<div className="text-[10px] text-slate-400">s={Math.round(s.s)} м · {fmtLatLng(s.pt)}</div></li>
+// // //                                 ))}
+// // //                             </ul>
+// // //                         </div>
+// // //                     </div>
+// // //                 </div>
+// // //
+// // //                 {/* Gates list */}
+// // //                 <div className="mt-5">
+// // //                     <div className="text-sm font-semibold text-slate-700">Гейты</div>
+// // //                     <ul className="mt-2 grid grid-cols-2 gap-2">
+// // //                         {GATES.map((g,i)=> (
+// // //                             <li key={i} className="text-xs p-2 rounded-lg border border-slate-200 bg-white">{g.city} · {g.name}<div className="text-[10px] text-slate-400">{fmtLatLng(g)}</div></li>
+// // //                         ))}
+// // //                     </ul>
+// // //                 </div>
+// // //             </div>
+// // //
+// // //             {/* Map */}
+// // //             <div className="flex-1 relative">
+// // //                 <MapContainer center={[40.5,44.5]} zoom={10} className="absolute inset-0" preferCanvas>
+// // //                     <TileLayer
+// // //                         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+// // //                         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+// // //                     />
+// // //
+// // //                     {/* main route */}
+// // //                     {route.length>0 && (
+// // //                         <Polyline positions={route.map(p=>[p.lat,p.lng])} pathOptions={{ color: '#0ea5e9', weight: 4, opacity: 0.9 }} />
+// // //                     )}
+// // //
+// // //                     {/* corridor circles */}
+// // //                     {corridor.map((c,idx)=> (
+// // //                         <Circle key={`c${idx}`} center={[c.lat,c.lng]} radius={c.radius} pathOptions={{ color: '#10b981', fillColor: '#10b981', fillOpacity: 0.08, weight: 1, opacity: 0.6 }} />
+// // //                     ))}
+// // //
+// // //                     {/* gates */}
+// // //                     {GATES.map((g,idx)=> (
+// // //                         <CircleMarker key={`g${idx}`} center={[g.lat,g.lng]} radius={5} pathOptions={{ color:'#22c55e', weight:2, fillOpacity:0.9 }} />
+// // //                     ))}
+// // //
+// // //                     {/* chosen pickup/drop */}
+// // //                     {pickupLL && (<CircleMarker center={[pickupLL.lat,pickupLL.lng]} radius={6} pathOptions={{ color:'#0ea5e9', weight:2, fillOpacity:0.9 }} />)}
+// // //                     {dropLL && (<CircleMarker center={[dropLL.lat,dropLL.lng]} radius={6} pathOptions={{ color:'#06b6d4', weight:2, fillOpacity:0.9 }} />)}
+// // //
+// // //                     <MapClicks mode={mode} setPickupLL={setPickupLL} setDropLL={setDropLL} />
+// // //                     <FitAll route={route} pickups={pickupLL?[pickupLL]:[]} drops={dropLL?[dropLL]:[]} />
+// // //                 </MapContainer>
+// // //
+// // //                 {/* legend */}
+// // //                 <div className="absolute left-2 bottom-2 bg-white/90 backdrop-blur border border-slate-200 rounded-xl p-2 text-xs text-slate-700 shadow-sm">
+// // //                     <div><span className="inline-block w-3 h-3 rounded-full bg-sky-500 mr-1"/>Маршрут</div>
+// // //                     <div><span className="inline-block w-3 h-3 rounded-full bg-emerald-500 mr-1"/>Коридор</div>
+// // //                     <div><span className="inline-block w-3 h-3 rounded-full bg-lime-500 mr-1"/>Гейты</div>
+// // //                     <div className="text-[10px] text-slate-500 mt-1">Клики по карте: режим «Выбор pickup/drop»</div>
+// // //                 </div>
+// // //             </div>
+// // //         </div>
+// // //     );
+// // // }
+// // //
+// // // /* -------- helper: point at path length s -------- */
+// // // function pointAtS(route, cum, s){
+// // //     if (!route.length) return route[0];
+// // //     if (s <= 0) return route[0];
+// // //     const total = cum[cum.length-1];
+// // //     if (s >= total) return route[route.length-1];
+// // //     let i = 0;
+// // //     while (i < cum.length-1 && cum[i+1] < s) i++;
+// // //     const segLen = distanceMeters(route[i], route[i+1]);
+// // //     const ds = s - cum[i];
+// // //     const t = segLen === 0 ? 0 : clamp(ds / segLen, 0, 1);
+// // //     // linear interp in lat/lng (ок для малых сегментов)
+// // //     return { lat: route[i].lat + t*(route[i+1].lat - route[i].lat), lng: route[i].lng + t*(route[i+1].lng - route[i].lng) };
+// // // }
+// // import React, { useEffect, useMemo, useRef, useState } from "react";
+// // import {
+// //     MapContainer,
+// //     TileLayer,
+// //     Polyline,
+// //     Polygon,
+// //     Rectangle,
+// //     CircleMarker,
+// //     useMap,
+// //     useMapEvents,
+// // } from "react-leaflet";
+// // import L from "leaflet";
+// //
+// // /**
+// //  * Corridor Client Demo · Vanadzor → Yerevan
+// //  * - Магистральный маршрут = OSRM driving START→FINISH
+// //  * - Коридор = «ширина дороги» как прямоугольные сегменты вдоль polyline (urban/rural)
+// //  * - Клиент вводит pickup/drop. Показываем:
+// //  *    • где останавливается машина (на коридоре или ближайшем gate),
+// //  *    • линию «walk» от клиента до точки остановки,
+// //  *    • кругами отмечаем только клиентские точки (pickup/drop).
+// //  */
+// //
+// // /* ---------------- constants ---------------- */
+// // const R_WALK = 350;          // м пешком до коридора/гейта
+// // const URBAN_R = 400;         // м половина ширины «дороги» в городе
+// // const RURAL_R = 800;         // м половина ширины «дороги» на трассе
+// // const URBAN_EDGE = 8000;     // м у краёв маршрута считаем «urban»
+// // const TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+// // const LS = { key: "corridor-client.v1" };
+// //
+// // // Магистраль Vanadzor → Yerevan
+// // const START = { name: "Vanadzor Center", lat: 40.8117, lng: 44.4935 };
+// // const FINISH = { name: "Yerevan Republic Sq", lat: 40.1772, lng: 44.5125 };
+// //
+// // // Фиксированные «гейты» посадки/высадки
+// // const GATES = [
+// //     { city: "Vanadzor", name: "Center", lat: 40.8117, lng: 44.4935 },
+// //     { city: "Vanadzor", name: "Station", lat: 40.8094, lng: 44.4981 },
+// //     { city: "Vanadzor", name: "Shirakatsi", lat: 40.8079, lng: 44.486 },
+// //     { city: "Vanadzor", name: "Taron", lat: 40.8198, lng: 44.4867 },
+// //     { city: "Yerevan", name: "Davtashen Br.", lat: 40.2108, lng: 44.4852 },
+// //     { city: "Yerevan", name: "Barekamutyun", lat: 40.2041, lng: 44.5128 },
+// //     { city: "Yerevan", name: "Sasuntsi David", lat: 40.1609, lng: 44.5163 },
+// //     { city: "Yerevan", name: "Republic Sq", lat: 40.1772, lng: 44.5125 },
+// //     { city: "Yerevan", name: "Erebuni", lat: 40.1461, lng: 44.5212 },
+// //     { city: "Yerevan", name: "Arin Berd", lat: 40.117, lng: 44.569 },
+// // ];
+// //
+// // /* ---------------- utils ---------------- */
+// // const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
+// // const fmtLatLng = (p) => (p ? `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}` : "—");
+// // const metersToKm = (m) => (m / 1000).toFixed(1);
+// // const AMD = (n) => {
+// //     try {
+// //         return new Intl.NumberFormat("hy-AM").format(n ?? 0);
+// //     } catch {
+// //         return String(n ?? 0);
+// //     }
+// // };
+// //
+// // function useLeafletCSS() {
+// //     useEffect(() => {
+// //         const id = "leaflet-css";
+// //         if (!document.getElementById(id)) {
+// //             const link = document.createElement("link");
+// //             link.id = id;
+// //             link.rel = "stylesheet";
+// //             link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+// //             link.integrity = "sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=";
+// //             link.crossOrigin = "";
+// //             document.head.appendChild(link);
+// //         }
+// //     }, []);
+// // }
+// //
+// // function saveLS(obj) {
+// //     try {
+// //         localStorage.setItem(LS.key, JSON.stringify(obj));
+// //     } catch {}
+// // }
+// // function loadLS() {
+// //     try {
+// //         const raw = localStorage.getItem(LS.key);
+// //         return raw ? JSON.parse(raw) : null;
+// //     } catch {
+// //         return null;
+// //     }
+// // }
+// //
+// // function distanceMeters(a, b) {
+// //     return L.latLng(a.lat, a.lng).distanceTo(L.latLng(b.lat, b.lng));
+// // }
+// // function projectMercator(ll) {
+// //     return L.CRS.EPSG3857.project(L.latLng(ll.lat, ll.lng)); // meters-like
+// // }
+// // function unprojectMercator(p) {
+// //     const ll = L.CRS.EPSG3857.unproject(L.point(p.x, p.y));
+// //     return { lat: ll.lat, lng: ll.lng };
+// // }
+// // function offsetMeters(ll, dx, dy) {
+// //     const p = projectMercator(ll);
+// //     return unprojectMercator({ x: p.x + dx, y: p.y + dy });
+// // }
+// // function corridorRadiusAt(s, total) {
+// //     if (s <= URBAN_EDGE || s >= total - URBAN_EDGE) return URBAN_R;
+// //     return RURAL_R;
+// // }
+// //
+// // /* --- геокодер (Nominatim) --- */
+// // async function geocode(q) {
+// //     const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&accept-language=hy,ru,en&q=${encodeURIComponent(
+// //         q
+// //     )}`;
+// //     const r = await fetch(url, { headers: { Accept: "application/json" } });
+// //     if (!r.ok) throw new Error(`HTTP ${r.status}`);
+// //     const data = await r.json();
+// //     return data.map((x) => ({ lat: +x.lat, lng: +x.lon, label: x.display_name }));
+// // }
+// //
+// // /* --- OSRM маршрут --- */
+// // async function fetchRoute(a, b) {
+// //     const u = `https://router.project-osrm.org/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=full&geometries=geojson`;
+// //     const r = await fetch(u);
+// //     if (!r.ok) throw new Error(`OSRM ${r.status}`);
+// //     const j = await r.json();
+// //     const route = j.routes?.[0];
+// //     if (!route) throw new Error("No route");
+// //     const coords = route.geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
+// //     return { coords, distance_m: route.distance, duration_s: route.duration };
+// // }
+// //
+// // /* --- длина вдоль polyline --- */
+// // function polylineCumulative(route) {
+// //     const cum = [0];
+// //     for (let i = 1; i < route.length; i++) {
+// //         cum[i] = cum[i - 1] + distanceMeters(route[i - 1], route[i]);
+// //     }
+// //     return cum;
+// // }
+// // function nearestOnPolyline(pt, route, cum) {
+// //     if (!route?.length) return null;
+// //     const P = projectMercator(pt);
+// //     let best = { d2: Infinity, s: 0, proj: route[0], i: 0, t: 0 };
+// //     for (let i = 0; i < route.length - 1; i++) {
+// //         const A = projectMercator(route[i]);
+// //         const B = projectMercator(route[i + 1]);
+// //         const ABx = B.x - A.x;
+// //         const ABy = B.y - A.y;
+// //         const APx = P.x - A.x;
+// //         const APy = P.y - A.y;
+// //         const ab2 = ABx * ABx + ABy * ABy;
+// //         const t = ab2 === 0 ? 0 : clamp((APx * ABx + APy * ABy) / ab2, 0, 1);
+// //         const Qx = A.x + t * ABx;
+// //         const Qy = A.y + t * ABy;
+// //         const dx = P.x - Qx;
+// //         const dy = P.y - Qy;
+// //         const d2 = dx * dx + dy * dy;
+// //         if (d2 < best.d2) {
+// //             const segLen = distanceMeters(route[i], route[i + 1]);
+// //             const s = cum[i] + t * segLen;
+// //             best = {
+// //                 d2,
+// //                 s,
+// //                 proj: unprojectMercator({ x: Qx, y: Qy }),
+// //                 i,
+// //                 t,
+// //             };
+// //         }
+// //     }
+// //     return { s: best.s, d: Math.sqrt(best.d2), proj: best.proj, i: best.i, t: best.t };
+// // }
+// // function nearestGate(pt) {
+// //     let best = null,
+// //         bestD = Infinity;
+// //     for (const g of GATES) {
+// //         const d = distanceMeters(pt, g);
+// //         if (d < bestD) {
+// //             bestD = d;
+// //             best = g;
+// //         }
+// //     }
+// //     return { gate: best, dist: bestD };
+// // }
+// //
+// // /* --- прямоугольник сегмента вдоль линии (ширина дороги) --- */
+// // function segmentRectangle(A, B, halfWidth) {
+// //     const a = projectMercator(A);
+// //     const b = projectMercator(B);
+// //     const vx = b.x - a.x;
+// //     const vy = b.y - a.y;
+// //     const len = Math.hypot(vx, vy);
+// //     if (len === 0) return null;
+// //     const nx = -vy / len; // перпендикуляр, единичный
+// //     const ny = vx / len;
+// //
+// //     const aL = { x: a.x + nx * halfWidth, y: a.y + ny * halfWidth };
+// //     const bL = { x: b.x + nx * halfWidth, y: b.y + ny * halfWidth };
+// //     const aR = { x: a.x - nx * halfWidth, y: a.y - ny * halfWidth };
+// //     const bR = { x: b.x - nx * halfWidth, y: b.y - ny * halfWidth };
+// //
+// //     return [
+// //         unprojectMercator(aL),
+// //         unprojectMercator(bL),
+// //         unprojectMercator(bR),
+// //         unprojectMercator(aR),
+// //     ];
+// // }
+// //
+// // /* --- построение «полосы дороги» вдоль polyline --- */
+// // function buildCorridorPolys(route, cum, total) {
+// //     const polys = [];
+// //     for (let i = 0; i < route.length - 1; i++) {
+// //         const sMid = (cum[i] + cum[i + 1]) / 2;
+// //         const halfW = corridorRadiusAt(sMid, total);
+// //         const rect = segmentRectangle(route[i], route[i + 1], halfW);
+// //         if (rect) polys.push(rect);
+// //     }
+// //     return polys;
+// // }
+// //
+// // /* --- Map helpers --- */
+// // function FitAll({ route, pts = [] }) {
+// //     const map = useMap();
+// //     useEffect(() => {
+// //         const layers = [];
+// //         if (route?.length) layers.push(L.polyline(route.map((p) => [p.lat, p.lng])));
+// //         pts.forEach((p) => p && layers.push(L.circleMarker([p.lat, p.lng])));
+// //         if (layers.length) {
+// //             const g = L.featureGroup(layers);
+// //             try {
+// //                 map.fitBounds(g.getBounds().pad(0.2));
+// //             } catch {}
+// //         }
+// //     }, [map, route, JSON.stringify(pts)]);
+// //     return null;
+// // }
+// // function MapClicks({ mode, setPickupLL, setDropLL }) {
+// //     useMapEvents({
+// //         click(e) {
+// //             if (mode === "pickup") setPickupLL({ lat: e.latlng.lat, lng: e.latlng.lng });
+// //             if (mode === "drop") setDropLL({ lat: e.latlng.lat, lng: e.latlng.lng });
+// //         },
+// //     });
+// //     return null;
+// // }
+// //
+// // /* ---------------- main UI ---------------- */
+// // export default function CorridorClientDemo() {
+// //     useLeafletCSS();
+// //
+// //     // state: маршрут
+// //     const [route, setRoute] = useState([]);
+// //     const [cum, setCum] = useState([]);
+// //     const [routeDist, setRouteDist] = useState(0);
+// //     const [routeTime, setRouteTime] = useState(0);
+// //
+// //     // визуальная «ширина дороги»
+// //     const [corridorPolys, setCorridorPolys] = useState([]);
+// //
+// //     // ввод клиента
+// //     const [mode, setMode] = useState("pickup");
+// //     const [q1, setQ1] = useState("");
+// //     const [q2, setQ2] = useState("");
+// //     const [pickupLL, setPickupLL] = useState(null);
+// //     const [dropLL, setDropLL] = useState(null);
+// //     const [busyGeo, setBusyGeo] = useState(false);
+// //
+// //     // вычисленные решения
+// //     const [pickStop, setPickStop] = useState(null); // {ptStop, ptUser, walk_m, kind, via:'corridor'|'gate'}
+// //     const [dropStop, setDropStop] = useState(null);
+// //
+// //     // инициализация маршрута
+// //     useEffect(() => {
+// //         (async () => {
+// //             try {
+// //                 const r = await fetchRoute(START, FINISH);
+// //                 setRoute(r.coords);
+// //                 setRouteDist(r.distance_m);
+// //                 setRouteTime(r.duration_s);
+// //                 const c = polylineCumulative(r.coords);
+// //                 setCum(c);
+// //                 const polys = buildCorridorPolys(r.coords, c, r.distance_m);
+// //                 setCorridorPolys(polys);
+// //             } catch (e) {
+// //                 alert("OSRM недоступен. Откройте позже.");
+// //             }
+// //         })();
+// //     }, []);
+// //
+// //     // восстановление ввода
+// //     useEffect(() => {
+// //         const prev = loadLS();
+// //         if (prev?.pickup) setPickupLL(prev.pickup);
+// //         if (prev?.drop) setDropLL(prev.drop);
+// //     }, []);
+// //     useEffect(() => {
+// //         saveLS({ pickup: pickupLL, drop: dropLL });
+// //     }, [pickupLL, dropLL]);
+// //
+// //     async function searchPickup() {
+// //         if (!q1.trim()) return;
+// //         setBusyGeo(true);
+// //         try {
+// //             const r = await geocode(q1.trim());
+// //             if (r[0]) setPickupLL(r[0]);
+// //         } finally {
+// //             setBusyGeo(false);
+// //         }
+// //     }
+// //     async function searchDrop() {
+// //         if (!q2.trim()) return;
+// //         setBusyGeo(true);
+// //         try {
+// //             const r = await geocode(q2.trim());
+// //             if (r[0]) setDropLL(r[0]);
+// //         } finally {
+// //             setBusyGeo(false);
+// //         }
+// //     }
+// //
+// //     // рассчитать «где остановится машина» и «walk» для заданной точки
+// //     function decideStop(userLL) {
+// //         if (!userLL || !route.length) return null;
+// //         const proj = nearestOnPolyline(userLL, route, cum);
+// //         const total = routeDist;
+// //         const rad = corridorRadiusAt(proj.s, total);
+// //         const { gate, dist: dGate } = nearestGate(userLL);
+// //
+// //         // сравнить «идти до коридора» vs «идти до гейта»
+// //         const walkToCorridor = proj.d;
+// //         const sGate = nearestOnPolyline(gate, route, cum).s;
+// //         const stopViaCorridor = {
+// //             ptStop: proj.proj,
+// //             ptUser: userLL,
+// //             walk_m: Math.round(walkToCorridor),
+// //             kind: "stop",
+// //             via: "corridor",
+// //             s: proj.s,
+// //         };
+// //         const stopViaGate = {
+// //             ptStop: gate,
+// //             ptUser: userLL,
+// //             walk_m: Math.round(dGate),
+// //             kind: "stop",
+// //             via: "gate",
+// //             s: sGate,
+// //             gateLabel: `${gate.city} · ${gate.name}`,
+// //         };
+// //
+// //         // правило: если обе дистанции > R_WALK, всё равно показываем ближайший путь, но подсветим предупреждение
+// //         const chosen = walkToCorridor <= dGate ? stopViaCorridor : stopViaGate;
+// //         const inside = proj.d <= rad; // внутри «ширины дороги»
+// //         return { chosen, inside, rad, proj, alt: chosen === stopViaCorridor ? stopViaGate : stopViaCorridor };
+// //     }
+// //
+// //     // обновлять решения при изменениях
+// //     useEffect(() => {
+// //         setPickStop(decideStop(pickupLL));
+// //     }, [JSON.stringify(pickupLL), JSON.stringify(route), routeDist]);
+// //     useEffect(() => {
+// //         setDropStop(decideStop(dropLL));
+// //     }, [JSON.stringify(dropLL), JSON.stringify(route), routeDist]);
+// //
+// //     const eta = useMemo(() => {
+// //         const base = routeTime; // сек
+// //         const stopsCount = (pickStop ? 1 : 0) + (dropStop ? 1 : 0);
+// //         const stopPenalty = stopsCount * 90; // 1.5 мин на остановку
+// //         // детуры не считаем, «walk» клиент идёт пешком
+// //         const total = base + stopPenalty;
+// //         return { base, total, stopsCount, stopPenalty };
+// //     }, [routeTime, pickStop?.chosen?.s, dropStop?.chosen?.s]);
+// //
+// //     function resetAll() {
+// //         setPickupLL(null);
+// //         setDropLL(null);
+// //         setPickStop(null);
+// //         setDropStop(null);
+// //         setQ1("");
+// //         setQ2("");
+// //     }
+// //
+// //     return (
+// //         <div className="flex h-screen w-full bg-slate-50">
+// //             {/* Left panel */}
+// //             <div className="w-full md:w-[420px] shrink-0 border-r border-slate-200 bg-white/80 backdrop-blur p-4 overflow-y-auto">
+// //                 <h1 className="text-xl font-bold text-slate-900">Corridor Client · Vanadzor → Yerevan</h1>
+// //                 <p className="text-xs text-slate-500 mt-1">
+// //                     Ширина дороги: urban {URBAN_R} м, rural {RURAL_R} м. Пешком до коридора/гейта ≤ {R_WALK} м считается «комфортно».
+// //                 </p>
+// //
+// //                 <div className="mt-3 text-xs text-slate-600">
+// //                     Маршрут: {metersToKm(routeDist)} км · базовое время {Math.round(eta.base / 60)} мин · ETA с остановками{" "}
+// //                     {Math.round(eta.total / 60)} мин.
+// //                 </div>
+// //
+// //                 <div className="mt-4 grid grid-cols-2 gap-2">
+// //                     <button
+// //                         onClick={() => setMode("pickup")}
+// //                         className={`py-2 rounded-xl text-sm font-semibold border ${
+// //                             mode === "pickup"
+// //                                 ? "bg-emerald-600 text-white border-emerald-600"
+// //                                 : "bg-white hover:bg-slate-50 border-slate-200"
+// //                         }`}
+// //                     >
+// //                         Режим: pickup
+// //                     </button>
+// //                     <button
+// //                         onClick={() => setMode("drop")}
+// //                         className={`py-2 rounded-xl text-sm font-semibold border ${
+// //                             mode === "drop"
+// //                                 ? "bg-cyan-600 text-white border-cyan-600"
+// //                                 : "bg-white hover:bg-slate-50 border-slate-200"
+// //                         }`}
+// //                     >
+// //                         Режим: drop
+// //                     </button>
+// //                 </div>
+// //
+// //                 <div className="mt-3 space-y-3">
+// //                     <div>
+// //                         <label className="text-xs font-medium text-slate-600">Pickup адрес</label>
+// //                         <div className="mt-1 flex gap-2">
+// //                             <input
+// //                                 value={q1}
+// //                                 onChange={(e) => setQ1(e.target.value)}
+// //                                 placeholder="введите адрес…"
+// //                                 className="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+// //                             />
+// //                             <button
+// //                                 onClick={searchPickup}
+// //                                 disabled={busyGeo}
+// //                                 className="px-3 py-2 rounded-xl text-sm font-semibold border border-slate-200 bg-white hover:bg-slate-50"
+// //                             >
+// //                                 Найти
+// //                             </button>
+// //                         </div>
+// //                         <div className="text-xs text-slate-500 mt-1">
+// //                             Точка: {fmtLatLng(pickupLL)} (или клик по карте в режиме «pickup»)
+// //                         </div>
+// //                     </div>
+// //
+// //                     <div>
+// //                         <label className="text-xs font-medium text-slate-600">Drop адрес</label>
+// //                         <div className="mt-1 flex gap-2">
+// //                             <input
+// //                                 value={q2}
+// //                                 onChange={(e) => setQ2(e.target.value)}
+// //                                 placeholder="введите адрес…"
+// //                                 className="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-cyan-500"
+// //                             />
+// //                             <button
+// //                                 onClick={searchDrop}
+// //                                 disabled={busyGeo}
+// //                                 className="px-3 py-2 rounded-xl text-sm font-semibold border border-slate-200 bg-white hover:bg-slate-50"
+// //                             >
+// //                                 Найти
+// //                             </button>
+// //                         </div>
+// //                         <div className="text-xs text-slate-500 mt-1">
+// //                             Точка: {fmtLatLng(dropLL)} (или клик по карте в режиме «drop»)
+// //                         </div>
+// //                     </div>
+// //
+// //                     <div className="flex gap-2">
+// //                         <button
+// //                             onClick={resetAll}
+// //                             className="px-3 py-2 rounded-xl text-sm font-semibold border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700"
+// //                         >
+// //                             Сбросить
+// //                         </button>
+// //                     </div>
+// //                 </div>
+// //
+// //                 {/* Итоги по решениям */}
+// //                 <div className="mt-5 space-y-3">
+// //                     <div className="p-3 rounded-xl border border-slate-200 bg-white">
+// //                         <div className="text-sm font-semibold text-slate-700">Посадка (pickup)</div>
+// //                         {pickStop ? (
+// //                             <>
+// //                                 <div className="text-xs mt-1 text-slate-600">
+// //                                     Остановка:{" "}
+// //                                     {pickStop.chosen.via === "gate"
+// //                                         ? `Gate: ${pickStop.chosen.gateLabel}`
+// //                                         : "На коридоре маршрута"}
+// //                                 </div>
+// //                                 <div className="text-xs text-slate-600">
+// //                                     Пешком: ~{AMD(pickStop.chosen.walk_m)} м {pickStop.chosen.walk_m > R_WALK ? "(дальше, чем комфортно)" : ""}
+// //                                 </div>
+// //                                 <div className="text-[10px] text-slate-400 mt-1">
+// //                                     Клиент: {fmtLatLng(pickStop.chosen.ptUser)} · Остановка: {fmtLatLng(pickStop.chosen.ptStop)}
+// //                                 </div>
+// //                             </>
+// //                         ) : (
+// //                             <div className="text-xs text-slate-500 mt-1">Укажите pickup.</div>
+// //                         )}
+// //                     </div>
+// //
+// //                     <div className="p-3 rounded-xl border border-slate-200 bg-white">
+// //                         <div className="text-sm font-semibold text-slate-700">Высадка (drop)</div>
+// //                         {dropStop ? (
+// //                             <>
+// //                                 <div className="text-xs mt-1 text-slate-600">
+// //                                     Остановка:{" "}
+// //                                     {dropStop.chosen.via === "gate"
+// //                                         ? `Gate: ${dropStop.chosen.gateLabel}`
+// //                                         : "На коридоре маршрута"}
+// //                                 </div>
+// //                                 <div className="text-xs text-slate-600">
+// //                                     Пешком: ~{AMD(dropStop.chosen.walk_m)} м {dropStop.chosen.walk_m > R_WALK ? "(дальше, чем комфортно)" : ""}
+// //                                 </div>
+// //                                 <div className="text-[10px] text-slate-400 mt-1">
+// //                                     Клиент: {fmtLatLng(dropStop.chosen.ptUser)} · Остановка: {fmtLatLng(dropStop.chosen.ptStop)}
+// //                                 </div>
+// //                             </>
+// //                         ) : (
+// //                             <div className="text-xs text-slate-500 mt-1">Укажите drop.</div>
+// //                         )}
+// //                     </div>
+// //                 </div>
+// //
+// //                 {/* Справочник гейтов */}
+// //                 <div className="mt-5">
+// //                     <div className="text-sm font-semibold text-slate-700">Гейты</div>
+// //                     <ul className="mt-2 grid grid-cols-2 gap-2">
+// //                         {GATES.map((g, i) => (
+// //                             <li key={i} className="text-xs p-2 rounded-lg border border-slate-200 bg-white">
+// //                                 {g.city} · {g.name}
+// //                                 <div className="text-[10px] text-slate-400">{fmtLatLng(g)}</div>
+// //                             </li>
+// //                         ))}
+// //                     </ul>
+// //                 </div>
+// //             </div>
+// //
+// //             {/* Map */}
+// //             <div className="flex-1 relative">
+// //                 <MapContainer center={[40.5, 44.5]} zoom={10} className="absolute inset-0" preferCanvas>
+// //                     <TileLayer attribution='&copy; OpenStreetMap contributors' url={TILE_URL} />
+// //
+// //                     {/* основной маршрут */}
+// //                     {route.length > 0 && (
+// //                         <Polyline
+// //                             positions={route.map((p) => [p.lat, p.lng])}
+// //                             pathOptions={{ color: "#0ea5e9", weight: 4, opacity: 0.9 }}
+// //                         />
+// //                     )}
+// //
+// //                     {/* «ширина дороги» как прямоугольные сегменты */}
+// //                     {corridorPolys.map((poly, idx) => (
+// //                         <Polygon
+// //                             key={`seg-${idx}`}
+// //                             positions={poly.map((p) => [p.lat, p.lng])}
+// //                             pathOptions={{
+// //                                 color: "#10b981",
+// //                                 weight: 1,
+// //                                 opacity: 0.6,
+// //                                 fillColor: "#10b981",
+// //                                 fillOpacity: 0.08,
+// //                             }}
+// //                         />
+// //                     ))}
+// //
+// //                     {/* гейты — маленькие квадраты (не круги) */}
+// //                     {GATES.map((g, idx) => {
+// //                         const size = 15; // м половина стороны
+// //                         const bounds = [
+// //                             [offsetMeters(g, -size, -size).lat, offsetMeters(g, -size, -size).lng],
+// //                             [offsetMeters(g, size, size).lat, offsetMeters(g, size, size).lng],
+// //                         ];
+// //                         return (
+// //                             <Rectangle
+// //                                 key={`gate-${idx}`}
+// //                                 bounds={bounds}
+// //                                 pathOptions={{ color: "#22c55e", weight: 2, fillOpacity: 0.9 }}
+// //                             />
+// //                         );
+// //                     })}
+// //
+// //                     {/* клиентские точки — КРУГИ (только они) */}
+// //                     {pickupLL && (
+// //                         <CircleMarker
+// //                             center={[pickupLL.lat, pickupLL.lng]}
+// //                             radius={7}
+// //                             pathOptions={{ color: "#0ea5e9", weight: 2, fillOpacity: 0.9 }}
+// //                         />
+// //                     )}
+// //                     {dropLL && (
+// //                         <CircleMarker
+// //                             center={[dropLL.lat, dropLL.lng]}
+// //                             radius={7}
+// //                             pathOptions={{ color: "#06b6d4", weight: 2, fillOpacity: 0.9 }}
+// //                         />
+// //                     )}
+// //
+// //                     {/* «где остановится машина» — маленький квадрат */}
+// //                     {pickStop?.chosen?.ptStop && (
+// //                         <Rectangle
+// //                             bounds={[
+// //                                 [offsetMeters(pickStop.chosen.ptStop, -10, -10).lat, offsetMeters(pickStop.chosen.ptStop, -10, -10).lng],
+// //                                 [offsetMeters(pickStop.chosen.ptStop, 10, 10).lat, offsetMeters(pickStop.chosen.ptStop, 10, 10).lng],
+// //                             ]}
+// //                             pathOptions={{ color: "#0ea5e9", weight: 2, fillOpacity: 0.6 }}
+// //                         />
+// //                     )}
+// //                     {dropStop?.chosen?.ptStop && (
+// //                         <Rectangle
+// //                             bounds={[
+// //                                 [offsetMeters(dropStop.chosen.ptStop, -10, -10).lat, offsetMeters(dropStop.chosen.ptStop, -10, -10).lng],
+// //                                 [offsetMeters(dropStop.chosen.ptStop, 10, 10).lat, offsetMeters(dropStop.chosen.ptStop, 10, 10).lng],
+// //                             ]}
+// //                             pathOptions={{ color: "#06b6d4", weight: 2, fillOpacity: 0.6 }}
+// //                         />
+// //                     )}
+// //
+// //                     {/* линии пешком (walk) — пунктир */}
+// //                     {pickStop?.chosen && pickupLL && (
+// //                         <Polyline
+// //                             positions={[
+// //                                 [pickupLL.lat, pickupLL.lng],
+// //                                 [pickStop.chosen.ptStop.lat, pickStop.chosen.ptStop.lng],
+// //                             ]}
+// //                             pathOptions={{ color: "#0ea5e9", weight: 3, opacity: 0.9, dashArray: "6 6" }}
+// //                         />
+// //                     )}
+// //                     {dropStop?.chosen && dropLL && (
+// //                         <Polyline
+// //                             positions={[
+// //                                 [dropLL.lat, dropLL.lng],
+// //                                 [dropStop.chosen.ptStop.lat, dropStop.chosen.ptStop.lng],
+// //                             ]}
+// //                             pathOptions={{ color: "#06b6d4", weight: 3, opacity: 0.9, dashArray: "6 6" }}
+// //                         />
+// //                     )}
+// //
+// //                     <MapClicks mode={mode} setPickupLL={setPickupLL} setDropLL={setDropLL} />
+// //                     <FitAll route={route} pts={[pickupLL, dropLL]} />
+// //                 </MapContainer>
+// //
+// //                 {/* legend */}
+// //                 <div className="absolute left-2 bottom-2 bg-white/90 backdrop-blur border border-slate-200 rounded-xl p-2 text-xs text-slate-700 shadow-sm">
+// //                     <div>
+// //                         <span className="inline-block w-3 h-3 rounded-full bg-sky-500 mr-1" />
+// //                         Маршрут
+// //                     </div>
+// //                     <div>
+// //                         <span className="inline-block w-3 h-3 bg-emerald-500 mr-1" />
+// //                         Ширина дороги
+// //                     </div>
+// //                     <div>
+// //                         <span className="inline-block w-3 h-3 bg-lime-500 mr-1" />
+// //                         Гейты
+// //                     </div>
+// //                     <div>
+// //                         <span className="inline-block w-3 h-3 rounded-full bg-sky-600 mr-1" />
+// //                         Pickup точка
+// //                     </div>
+// //                     <div>
+// //                         <span className="inline-block w-3 h-3 rounded-full bg-cyan-600 mr-1" />
+// //                         Drop точка
+// //                     </div>
+// //                     <div className="text-[10px] text-slate-500 mt-1">
+// //                         Клики по карте: режим «pickup/drop»
+// //                     </div>
+// //                 </div>
+// //             </div>
+// //         </div>
+// //     );
+// // }
+// import React, { useEffect, useMemo, useState } from "react";
+// import dayjs from "dayjs";
+// import { motion, AnimatePresence } from "framer-motion";
+// import {
+//     LayoutDashboard,
+//     Route as RouteIcon,
+//     Play,
+//     CheckCircle2,
+//     History,
+//     CalendarClock,
+//     Search,
+//     Filter,
+//     MapPin,
+//     Car,
+//     Users,
+//     Banknote,
+//     ArrowRight,
+//     TimerReset,
+//     Star,
+//     X,
+//     Calendar,
+//     Clock,
+//     ShieldCheck,
+//     Check,
+//     Share2,
+//     Heart,
+// } from "lucide-react";
+// import {
+//     ResponsiveContainer,
+//     AreaChart,
+//     Area,
+//     XAxis,
+//     YAxis,
+//     CartesianGrid,
+//     Tooltip,
+// } from "recharts";
+//
+// // Map libs
+// import { MapContainer, TileLayer, Marker, Polyline, useMap } from "react-leaflet";
+// import L from "leaflet";
+// import "leaflet/dist/leaflet.css";
+//
+// // Fix Leaflet default marker icons for bundlers
+// const DefaultIcon = L.icon({
+//     iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+//     iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+//     shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+//     iconSize: [25, 41],
+//     iconAnchor: [12, 41],
+//     shadowSize: [41, 41],
+// });
+// L.Marker.prototype.options.icon = DefaultIcon;
+//
+// /**
+//  * CompanyJobs · one‑page demo
+//  * - Sidebar tabs, no page scroll
+//  * - Dashboard + Active + Assigned + History
+//  * - TripShow overlay with map and stops
+//  * - Rating modal with center pop animation
+//  */
+//
+// export default function CompanyJobsDemo(props) {
+//     const { company: companyIn, active: activeIn, upcoming: upcomingIn, done: doneIn } = props || {};
+//
+//     // Demo fallback data
+//     const demoCompany = { id: 1, name: "HayWay LLC" };
+//     const demoTrips = useMemo(() => makeDemoTrips(), []);
+//
+//     const active = useMemo(() => (Array.isArray(activeIn) && activeIn.length ? activeIn : demoTrips.active), [activeIn, demoTrips]);
+//     const upcoming = useMemo(() => (Array.isArray(upcomingIn) && upcomingIn.length ? upcomingIn : demoTrips.upcoming), [upcomingIn, demoTrips]);
+//     const done = useMemo(() => (Array.isArray(doneIn) && doneIn.length ? doneIn : demoTrips.done), [doneIn, demoTrips]);
+//     const company = companyIn || demoCompany;
+//
+//     // UI state
+//     const [tab, setTab] = useState("dashboard");
+//     const [q, setQ] = useState("");
+//     const [rateTrip, setRateTrip] = useState(null);
+//     const [tripShow, setTripShow] = useState(null);
+//
+//     const filtered = useMemo(
+//         () => ({ active: filterTrips(active, q), upcoming: filterTrips(upcoming, q), done: filterTrips(done, q) }),
+//         [active, upcoming, done, q]
+//     );
+//
+//     const kpis = useMemo(() => buildKpis({ active: filtered.active, upcoming: filtered.upcoming, done: filtered.done }), [filtered]);
+//     const daily = useMemo(() => buildDailySeries([...active, ...done, ...upcoming]), [active, done, upcoming]);
+//
+//     return (
+//         <div className="min-h-screen w-full bg-gradient-to-br from-emerald-50 to-cyan-50 text-slate-900">
+//             <div className="mx-auto max-w-7xl px-4 py-6">
+//                 <div className="grid grid-cols-12 gap-5">
+//                     {/* Sidebar */}
+//                     <aside className="col-span-12 md:col-span-3 lg:col-span-3">
+//                         <div className="sticky top-4 rounded-3xl border border-emerald-200/60 bg-white/80 backdrop-blur p-4">
+//                             <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+//                                 <div className="h-10 w-10 rounded-2xl bg-gradient-to-br from-emerald-500 to-cyan-500 grid place-content-center text-white">
+//                                     <RouteIcon size={20} />
+//                                 </div>
+//                                 <div>
+//                                     <div className="text-xs uppercase tracking-wide text-slate-500">Ընկերություն</div>
+//                                     <div className="font-bold">{company?.name || "—"}</div>
+//                                 </div>
+//                             </div>
+//
+//                             <nav className="mt-3 space-y-1">
+//                                 <SidebarBtn icon={<LayoutDashboard size={18} />} label="Դաշբորդ" active={tab === "dashboard"} onClick={() => setTab("dashboard")} />
+//                                 <SidebarBtn icon={<TimerReset size={18} />} label="Ընթացքում" active={tab === "active"} onClick={() => setTab("active")} />
+//                                 <SidebarBtn icon={<CalendarClock size={18} />} label="Նշանակված" active={tab === "upcoming"} onClick={() => setTab("upcoming")} />
+//                                 <SidebarBtn icon={<History size={18} />} label="Պատմություն" active={tab === "history"} onClick={() => setTab("history")} />
+//                             </nav>
+//
+//                             <div className="mt-6">
+//                                 <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">Որոնում</div>
+//                                 <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+//                                     <Search size={16} className="text-slate-400" />
+//                                     <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="քաղաք, հասցե…" className="w-full bg-transparent outline-none text-sm" />
+//                                 </div>
+//                             </div>
+//
+//                             <div className="mt-6 rounded-2xl bg-gradient-to-br from-emerald-100 to-cyan-100 p-3">
+//                                 <div className="text-xs text-slate-600">Արագ թվեր</div>
+//                                 <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+//                                     <KpiMini label="Ընթացք" value={kpis.activeCount} />
+//                                     <KpiMini label="Սպասվող" value={kpis.upcomingCount} />
+//                                     <KpiMini label="Ավարտված" value={kpis.doneCount} />
+//                                 </div>
+//                             </div>
+//                         </div>
+//                     </aside>
+//
+//                     {/* Content */}
+//                     <main className="col-span-12 md:col-span-9 lg:col-span-9">
+//                         <div className="rounded-3xl border border-emerald-200/60 bg-white/90 backdrop-blur p-4 md:p-6">
+//                             <Header company={company} />
+//
+//                             <AnimatePresence mode="wait">
+//                                 {tab === "dashboard" && (
+//                                     <motion.div key="dashboard" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
+//                                         <DashboardPanel kpis={kpis} series={daily} recent={[...active, ...upcoming].slice(0, 6)} onOpenTrip={setTripShow} />
+//                                     </motion.div>
+//                                 )}
+//                                 {tab === "active" && (
+//                                     <motion.div key="active" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
+//                                         <SectionTitle title="Ընթացիկ երթուղիներ" subtitle="Ձեր ներկայումս գործող հանձնարարումները" />
+//                                         <TripsGrid items={filtered.active} kind="active" onOpenTrip={setTripShow} />
+//                                     </motion.div>
+//                                 )}
+//                                 {tab === "upcoming" && (
+//                                     <motion.div key="upcoming" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
+//                                         <SectionTitle title="Նշանակված ինձ" subtitle="Սպասվող մեկնարկներ և հերթագրվածներ" />
+//                                         <TripsGrid items={filtered.upcoming} kind="upcoming" onOpenTrip={setTripShow} />
+//                                     </motion.div>
+//                                 )}
+//                                 {tab === "history" && (
+//                                     <motion.div key="history" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
+//                                         <SectionTitle title="Վերջին ավարտվածները" subtitle="Ավարտված երթուղիների կողքին տեսեք միավորներն ու եկամուտը" />
+//                                         <TripsGrid items={filtered.done} kind="done" onOpenTrip={setTripShow} onRateTrip={setRateTrip} />
+//                                     </motion.div>
+//                                 )}
+//                             </AnimatePresence>
+//
+//                             {/* Overlays */}
+//                             <TripShowOverlay trip={tripShow} open={!!tripShow} onClose={() => setTripShow(null)} />
+//                             <RatePassengersModal trip={rateTrip} open={!!rateTrip} onClose={() => setRateTrip(null)} />
+//                         </div>
+//                     </main>
+//                 </div>
+//             </div>
+//         </div>
+//     );
+// }
+//
+// /* ===================== UI bits ===================== */
+// function SidebarBtn({ icon, label, active, onClick }) {
+//     return (
+//         <button onClick={onClick} className={["w-full flex items-center gap-3 rounded-xl px-3 py-2 text-sm", active ? "bg-gradient-to-r from-emerald-500 to-cyan-500 text-white shadow" : "hover:bg-slate-50 text-slate-700 border border-transparent"].join(" ")}>
+//             <span className="shrink-0">{icon}</span>
+//             <span className="truncate">{label}</span>
+//         </button>
+//     );
+// }
+//
+// function Header({ company }) {
+//     return (
+//         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+//             <div>
+//                 <div className="text-xs uppercase tracking-wide text-slate-500">Դրայվեր · հանձնարարումներ</div>
+//                 <h1 className="text-2xl md:text-3xl font-extrabold text-slate-900">Իմ հանձնարարումները</h1>
+//                 <div className="text-slate-500 text-sm">{company?.name || "—"}</div>
+//             </div>
+//             <div className="flex items-center gap-2">
+//                 <span className="text-xs text-slate-500">Դեմո</span>
+//                 <span className="h-2 w-2 rounded-full bg-emerald-500 inline-block" />
+//             </div>
+//         </div>
+//     );
+// }
+//
+// function SectionTitle({ title, subtitle }) {
+//     return (
+//         <div className="mb-4">
+//             <h2 className="text-xl font-bold text-slate-900">{title}</h2>
+//             {subtitle && <div className="text-sm text-slate-500">{subtitle}</div>}
+//         </div>
+//     );
+// }
+//
+// function KpiMini({ label, value }) {
+//     return (
+//         <div className="rounded-xl bg-white/70 border border-emerald-200/60 py-3">
+//             <div className="text-xs text-slate-500">{label}</div>
+//             <div className="text-lg font-bold">{hyNum(value)}</div>
+//         </div>
+//     );
+// }
+//
+// function DashboardPanel({ kpis, series, recent, onOpenTrip }) {
+//     return (
+//         <div className="mt-5 space-y-6">
+//             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+//                 <KpiCard icon={<RouteIcon />} label="Ընթացք" value={kpis.activeCount} hint="քանակ" />
+//                 <KpiCard icon={<CalendarClock />} label="Սպասվող" value={kpis.upcomingCount} hint="քանակ" />
+//                 <KpiCard icon={<CheckCircle2 />} label="Ավարտված" value={kpis.doneCount} hint="վերջին 90դ" />
+//                 <KpiCard icon={<Banknote />} label="Եկամուտ" value={`${hyNum(kpis.revenueAmd)} AMD`} hint="գնահատված" />
+//             </div>
+//
+//             <div className="rounded-2xl border border-slate-100 p-3">
+//                 <div className="text-sm text-slate-600 mb-2">Վերջին 14 օր · երթուղիների ակտիվություն</div>
+//                 <div className="h-48">
+//                     <ResponsiveContainer width="100%" height="100%">
+//                         <AreaChart data={series} margin={{ left: 8, right: 8, top: 8, bottom: 8 }}>
+//                             <defs>
+//                                 <linearGradient id="c1" x1="0" y1="0" x2="0" y2="1">
+//                                     <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+//                                     <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.05} />
+//                                 </linearGradient>
+//                             </defs>
+//                             <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+//                             <XAxis dataKey="d" tick={{ fontSize: 11 }} />
+//                             <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+//                             <Tooltip formatter={(v, n) => [v, n === "trips" ? "Երթուղիներ" : "Տեսքեր"]} />
+//                             <Area type="monotone" dataKey="trips" stroke="#10b981" fill="url(#c1)" strokeWidth={2} />
+//                         </AreaChart>
+//                     </ResponsiveContainer>
+//                 </div>
+//             </div>
+//
+//             <div>
+//                 <SectionTitle title="Մոտակա մեկնարկներ" />
+//                 <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+//                     {recent.map((t) => (
+//                         <TripCard key={`rec-${t.id}`} t={t} kind={t.driver_state} onOpenTrip={onOpenTrip} />
+//                     ))}
+//                 </div>
+//             </div>
+//         </div>
+//     );
+// }
+//
+// function KpiCard({ icon, label, value, hint }) {
+//     return (
+//         <div className="rounded-2xl border border-emerald-200/60 bg-white p-4 flex items-center gap-3">
+//             <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-500 to-cyan-500 text-white grid place-content-center">{icon}</div>
+//             <div className="flex-1">
+//                 <div className="text-xs text-slate-500">{label}</div>
+//                 <div className="text-xl font-extrabold leading-6">{value}</div>
+//                 {hint && <div className="text-[11px] text-slate-400">{hint}</div>}
+//             </div>
+//         </div>
+//     );
+// }
+//
+// function TripsGrid({ items, kind, onOpenTrip, onRateTrip }) {
+//     if (!items?.length) return <EmptyState />;
+//     return (
+//         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+//             {items.map((t) => (
+//                 <TripCard key={t.id} t={t} kind={kind} onOpenTrip={onOpenTrip} onRateTrip={onRateTrip} />
+//             ))}
+//         </div>
+//     );
+// }
+//
+// function EmptyState() {
+//     return (
+//         <div className="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-slate-500 bg-slate-50/50">Տվյալներ չկան</div>
+//     );
+// }
+//
+// function TripCard({ t, kind, onOpenTrip, onRateTrip }) {
+//     const when = t.departure_at ? dayjs(t.departure_at).format("MM-DD HH:mm") : "—";
+//     const seatsTaken = clamp(t.seats_taken || 0, 0, t.seats_total || 0);
+//     const progress = (100 * seatsTaken) / Math.max(1, t.seats_total || 1);
+//     const btn = actionBtn(kind, t);
+//
+//     return (
+//         <div className="rounded-2xl border border-slate-200 bg-white p-4 hover:shadow-sm transition">
+//             <div className="flex items-center justify-between text-xs text-slate-500">
+//                 <span>{t.company?.name || ""}</span>
+//                 <span className="inline-flex items-center gap-1"><Car size={14} />{t.vehicle ? `${t.vehicle.brand} ${t.vehicle.model}` : "—"}</span>
+//             </div>
+//             <div className="mt-2 font-semibold text-slate-900 flex items-center gap-2">
+//                 <MapPin size={16} className="text-emerald-600" />
+//                 <span className="truncate">{t.from_addr}</span>
+//                 <ArrowRight size={16} className="text-slate-400" />
+//                 <span className="truncate">{t.to_addr}</span>
+//             </div>
+//             <div className="mt-1 text-sm text-slate-600 flex items-center gap-4">
+//                 <span className="inline-flex items-center gap-1"><CalendarClock size={14} /> {when}</span>
+//                 <span className="inline-flex items-center gap-1"><Users size={14} /> {seatsTaken}/{t.seats_total}</span>
+//             </div>
+//             <div className="mt-3 h-2 w-full rounded-full bg-slate-100 overflow-hidden">
+//                 <div className="h-full bg-gradient-to-r from-emerald-500 to-cyan-500" style={{ width: `${progress}%` }} />
+//             </div>
+//             <div className="mt-2 text-[13px] text-slate-500 flex items-center gap-3">
+//                 <span className="inline-flex items-center gap-1"><Banknote size={14} /> {hyNum(t.price_amd)} AMD</span>
+//                 {t.pending_requests_count != null && (
+//                     <span className="inline-flex items-center gap-1"><Filter size={14} /> հայտեր {t.pending_requests_count} • հսթ {t.accepted_requests_count ?? 0}</span>
+//                 )}
+//             </div>
+//             <div className="mt-3 flex gap-2">
+//                 {btn && (
+//                     <button onClick={() => safePost(btn.route, { trip: t.id })} className={btn.cls}>
+//                         {btn.icon}
+//                         <span>{btn.text}</span>
+//                     </button>
+//                 )}
+//                 <button onClick={() => onOpenTrip?.(t)} className="px-3 py-1.5 rounded-xl border border-slate-200 text-slate-700 text-sm hover:bg-slate-50">Մանրամասն</button>
+//                 {kind === "done" && (
+//                     <button onClick={() => onRateTrip?.(t)} className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 text-white text-sm">Գնահատել</button>
+//                 )}
+//             </div>
+//         </div>
+//     );
+// }
+//
+// function actionBtn(kind, t) {
+//     if (kind === "upcoming" || t.driver_state === "assigned") {
+//         return { text: "Սկսել", route: "driver.jobs.start", cls: "inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900 text-[#ffdd2c] text-sm", icon: <Play size={16} /> };
+//     }
+//     if (kind === "active" || t.driver_state === "en_route") {
+//         return { text: "Ավարտել", route: "driver.jobs.finish", cls: "inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-600 text-white text-sm", icon: <CheckCircle2 size={16} /> };
+//     }
+//     return null;
+// }
+//
+// /* ===================== Rating modal ===================== */
+// function RatePassengersModal({ trip, open, onClose }) {
+//     const [rows, setRows] = useState(() => (trip?.passengers?.length ? trip.passengers : makePassengersFallback()).map((p) => ({ ...p })));
+//     const [submitting, setSubmitting] = useState(false);
+//
+//     useEffect(() => {
+//         if (!open) return;
+//         const prev = document.body.style.overflow;
+//         document.body.style.overflow = "hidden";
+//         const onKey = (e) => { if (e.key === "Escape") onClose?.(); };
+//         window.addEventListener("keydown", onKey);
+//         return () => { document.body.style.overflow = prev; window.removeEventListener("keydown", onKey); };
+//     }, [open, onClose]);
+//
+//     if (!open || !trip) return null;
+//
+//     const setRating = (idx, rating) => setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, rating } : r)));
+//     const setNote = (idx, note) => setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, note } : r)));
+//     const canSubmit = rows.some((r) => (r.rating || 0) > 0);
+//
+//     const submit = async () => {
+//         setSubmitting(true);
+//         try {
+//             await safePost("driver.ratings.bulk", { trip: trip.id, ratings: rows.filter((r) => (r.rating || 0) > 0).map((r) => ({ user_id: r.id, rating: r.rating, description: r.note || null })) });
+//         } finally {
+//             setSubmitting(false);
+//             onClose?.();
+//         }
+//     };
+//
+//     return (
+//         <AnimatePresence>
+//             {open && (
+//                 <motion.div className="fixed inset-0 z-50" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+//                     <motion.div className="absolute inset-0 bg-slate-900/45 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} />
+//                     <div className="absolute inset-0 grid place-items-center p-6">
+//                         <motion.div role="dialog" aria-modal="true" className="w-[min(760px,94vw)] max-h-[82vh] rounded-3xl bg-white shadow-2xl border border-slate-200 overflow-hidden flex flex-col"
+//                                     initial={{ y: 18, scale: 0.96, opacity: 0 }} animate={{ y: 0, scale: 1, opacity: 1, transition: { type: "spring", stiffness: 220, damping: 24 } }} exit={{ y: 8, opacity: 0, scale: 0.98 }}>
+//                             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+//                                 <div>
+//                                     <div className="text-xs text-slate-500">Գնահատում · {trip.from_addr} → {trip.to_addr}</div>
+//                                     <div className="font-bold text-slate-900">Ուղևորների գնահատականներ</div>
+//                                 </div>
+//                                 <button onClick={onClose} className="p-2 rounded-lg hover:bg-slate-50" aria-label="Close rating modal"><X size={18} /></button>
+//                             </div>
+//                             <div className="px-4 py-3 space-y-3 overflow-y-auto">
+//                                 {rows.map((r, idx) => (
+//                                     <div key={r.id} className="rounded-xl border border-slate-200 p-3">
+//                                         <div className="flex items-center justify-between">
+//                                             <div className="font-medium">{r.name || "Passenger"}</div>
+//                                             <StarRating value={r.rating || 0} onChange={(v) => setRating(idx, v)} />
+//                                         </div>
+//                                         <textarea placeholder="նկարագրություն (ոչ պարտադիր)" className="mt-2 w-full rounded-lg border border-slate-200 p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-400" rows={2} value={r.note || ""} onChange={(e) => setNote(idx, e.target.value)} />
+//                                     </div>
+//                                 ))}
+//                             </div>
+//                             <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-end gap-2">
+//                                 <button onClick={onClose} className="px-3 py-1.5 rounded-xl border border-slate-200 text-slate-700 text-sm">Չեղարկել</button>
+//                                 <button onClick={submit} disabled={!canSubmit || submitting} className="px-3 py-1.5 rounded-xl bg-emerald-600 text-white text-sm disabled:opacity-50 disabled:cursor-not-allowed">Պահպանել</button>
+//                             </div>
+//                         </motion.div>
+//                     </div>
+//                 </motion.div>
+//             )}
+//         </AnimatePresence>
+//     );
+// }
+//
+// function StarRating({ value = 0, onChange }) {
+//     const arr = [1, 2, 3, 4, 5];
+//     return (
+//         <div className="inline-flex items-center">
+//             {arr.map((i) => (
+//                 <button key={i} onClick={() => onChange?.(i)} className="p-1" aria-label={`rate-${i}`}>
+//                     <Star size={18} className={i <= value ? "text-amber-400 fill-amber-400" : "text-slate-300"} />
+//                 </button>
+//             ))}
+//         </div>
+//     );
+// }
+//
+// /* ===================== TripShow overlay ===================== */
+// /* ===================== TripShow overlay (fixed) ===================== */
+// function TripShowOverlay({ trip, open, onClose }) {
+//     // можно оставить этот эффект: он не меняет число hooks между рендерами
+//     useEffect(() => {
+//         if (!open) return;
+//         const prev = document.body.style.overflow;
+//         document.body.style.overflow = "hidden";
+//         return () => { document.body.style.overflow = prev; };
+//     }, [open]);
+//
+//     if (!open || !trip) return null;           // без hooks ниже — безопасно
+//     return <TripShowDialog trip={trip} onClose={onClose} />;
+// }
+//
+// function TripShowDialog({ trip, onClose }) {
+//     // ВСЕ hooks вызываются безусловно на каждом рендере
+//     const A = useMemo(
+//         () => normLL({ lng: trip.from_lng, lat: trip.from_lat }),
+//         [trip.from_lng, trip.from_lat]
+//     );
+//     const B = useMemo(
+//         () => normLL({ lng: trip.to_lng, lat: trip.to_lat }),
+//         [trip.to_lng, trip.to_lat]
+//     );
+//     const stops = useMemo(
+//         () => normStops((trip.stops || []).slice().sort((a,b)=>(a.position||0)-(b.position||0))),
+//         [trip.stops]
+//     );
+//
+//     return (
+//         <AnimatePresence>
+//             <motion.div className="fixed inset-0 z-50" initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}>
+//                 <motion.div className="absolute inset-0 bg-slate-900/45 backdrop-blur-sm" onClick={onClose} />
+//                 <div className="absolute inset-0 grid place-items-center p-6">
+//                     <motion.div role="dialog" aria-modal="true"
+//                                 className="w-[min(1080px,96vw)] max-h-[88vh] rounded-3xl bg-white shadow-2xl border border-slate-200 overflow-hidden flex flex-col"
+//                                 initial={{ y:24, scale:.97, opacity:0 }} animate={{ y:0, scale:1, opacity:1, transition:{ type:"spring", stiffness:220, damping:26 } }} exit={{ y:10, opacity:0, scale:.98 }}
+//                                 onClick={(e)=>e.stopPropagation()}>
+//                         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+//                             <div>
+//                                 <div className="text-xs text-slate-500">Երթուղի</div>
+//                                 <div className="text-lg font-bold text-slate-900">{trip.from_addr} → {trip.to_addr}</div>
+//                             </div>
+//                             <button onClick={onClose} className="p-2 rounded-lg hover:bg-slate-50" aria-label="Close trip show"><X size={18} /></button>
+//                         </div>
+//
+//                         <div className="grid gap-0 md:grid-cols-[1.6fr_1fr]">
+//                             <div className="h-72 md:h-[420px]">
+//                                 <MapRoute A={A} B={B} stops={stops} />
+//                             </div>
+//                             {/* ... остальная правая панель без изменений ... */}
+//                         </div>
+//
+//                         <div className="px-5 py-4 border-t border-slate-100 flex items-center justify-between">
+//                             <div className="text-sm text-slate-600">
+//                                 Մեքենա · {trip?.vehicle ? `${trip.vehicle.brand} ${trip.vehicle.model} · ${trip.vehicle.plate}` : "—"}
+//                             </div>
+//                             <div className="flex items-center gap-3 text-sm text-slate-600">
+//                                 <span className="inline-flex items-center gap-2"><Share2 size={16} />Կիսվել</span>
+//                                 <span className="inline-flex items-center gap-2"><Heart size={16} />Պահել</span>
+//                             </div>
+//                         </div>
+//                     </motion.div>
+//                 </div>
+//             </motion.div>
+//         </AnimatePresence>
+//     );
+// }
+//
+//
+// /* ===================== Map and helpers ===================== */
+// function MapRoute({ A, B, stops = [] }) {
+//     const [routeCoords, setRouteCoords] = useState([]);
+//     const [fallbackCoords, setFallbackCoords] = useState([]);
+//
+//     const points = useMemo(() => {
+//         const ordered = (stops || []).slice().sort((a, b) => (a.position || 0) - (b.position || 0));
+//         return [A, ...ordered, B].filter((p) => Number.isFinite(p?.lng) && Number.isFinite(p?.lat));
+//     }, [A?.lng, A?.lat, B?.lng, B?.lat, JSON.stringify(stops)]);
+//
+//     useEffect(() => {
+//         let cancelled = false;
+//         (async () => {
+//             if (points.length < 2) { setRouteCoords([]); setFallbackCoords([]); return; }
+//             try {
+//                 const r = await osrmRouteVia("driving", points);
+//                 if (cancelled) return;
+//                 const coords = (r?.geometry?.coordinates || []).map(([lng, lat]) => ({ lat, lng }));
+//                 setRouteCoords(coords);
+//                 setFallbackCoords([]);
+//             } catch {
+//                 if (cancelled) return;
+//                 setRouteCoords([]);
+//                 setFallbackCoords(points.map((p) => ({ lat: p.lat, lng: p.lng })));
+//             }
+//         })();
+//         return () => { cancelled = true; };
+//     }, [JSON.stringify(points)]);
+//
+//     const center = Number.isFinite(A?.lat) && Number.isFinite(B?.lat) ? [(A.lat + B.lat) / 2, (A.lng + B.lng) / 2] : [40.1792, 44.4991];
+//
+//     return (
+//         <MapContainer center={center} zoom={8} className="h-full w-full">
+//             <TileLayer attribution='&copy; OSM contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+//             {routeCoords.length > 1 && <Polyline positions={routeCoords.map((p) => [p.lat, p.lng])} weight={6} />}
+//             {routeCoords.length === 0 && fallbackCoords.length > 1 && <Polyline positions={fallbackCoords.map((p) => [p.lat, p.lng])} weight={4} />}
+//             {Number.isFinite(A?.lng) && Number.isFinite(A?.lat) && <Marker position={[A.lat, A.lng]} icon={mkDivIcon("#16a34a", "Սկիզբ")} />}
+//             {(stops || []).sort((a, b) => (a.position || 0) - (b.position || 0)).map((s, i) => (Number.isFinite(s?.lng) && Number.isFinite(s?.lat) ? <Marker key={i} position={[s.lat, s.lng]} icon={mkDivIcon("#22c55e", String(i + 1))} /> : null))}
+//             {Number.isFinite(B?.lng) && Number.isFinite(B?.lat) && <Marker position={[B.lat, B.lng]} icon={mkDivIcon("#ef4444", "Վերջ")} />}
+//             <FitTo routeCoords={routeCoords} pts={points} />
+//         </MapContainer>
+//     );
+// }
+//
+// function FitTo({ routeCoords, pts }) {
+//     const map = useMap();
+//     useEffect(() => {
+//         const coords = routeCoords?.length ? routeCoords.map((p) => [p.lat, p.lng]) : (pts || []).filter((p) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng)).map((p) => [p.lat, p.lng]);
+//         if (!coords.length) return;
+//         const b = L.latLngBounds(coords);
+//         map.fitBounds(b.pad(0.2));
+//     }, [map, routeCoords?.length, JSON.stringify(pts)]);
+//     return null;
+// }
+//
+// async function osrmRouteVia(profile, points) {
+//     const pts = (points || []).map(normLL).filter(Boolean);
+//     if (pts.length < 2) return null;
+//     const path = pts.map((p) => `${p.lng},${p.lat}`).join(";");
+//     const url = `https://router.project-osrm.org/route/v1/${profile}/${path}?overview=full&geometries=geojson&alternatives=false&steps=false`;
+//     const r = await fetch(url);
+//     if (!r.ok) throw new Error("OSRM " + r.status);
+//     const d = await r.json();
+//     return d?.routes?.[0] || null;
+// }
+//
+// function mkDivIcon(color, label = null) {
+//     const html = `
+//     <div style="position:relative;width:14px;height:14px;border-radius:50%;box-shadow:0 0 0 2px #fff,0 0 0 4px ${color};background:${color};"></div>
+//     ${label !== null ? `<div style="position:absolute;left:50%;top:0;transform:translate(-50%,-140%);font:600 11px/1 system-ui;padding:2px 6px;border-radius:8px;background:#fff;color:#065f46;border:1px solid rgba(5,150,105,.35);box-shadow:0 1px 2px rgba(0,0,0,.06)">${label}</div>` : ""}
+//   `;
+//     return L.divIcon({ html, className: "", iconSize: [14, 14], iconAnchor: [7, 7] });
+// }
+//
+// function inRange(x, [a, b]) { return Number.isFinite(x) && x >= a && x <= b; }
+// function normLL(p) {
+//     let lng = Number(p?.lng), lat = Number(p?.lat);
+//     if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+//     const ok = inRange(lng, [43, 47]) && inRange(lat, [38, 42.5]);
+//     const okSwap = inRange(Number(p?.lat), [43, 47]) && inRange(Number(p?.lng), [38, 42.5]);
+//     if (!ok && okSwap) { [lng, lat] = [Number(p.lat), Number(p.lng)]; }
+//     if (!inRange(lng, [-180, 180]) || !inRange(lat, [-90, 90])) return null;
+//     lng = Math.round(lng * 1e6) / 1e6; lat = Math.round(lat * 1e6) / 1e6;
+//     return { lng, lat };
+// }
+// function normStops(stops) { return (stops || []).map((s) => ({ ...s, ...(normLL(s) || {}) })).map((s) => normLL(s)).filter(Boolean); }
+//
+// function Stops({ stops, from, to }) {
+//     const all = [
+//         { k: "Սկիզբ", name: from, isEdge: true },
+//         ...(stops || []).map((s, i) => ({ k: s.name || s.addr || ("Կանգառ " + (s.position ?? i + 1)), name: s.addr || "", isEdge: false })),
+//         { k: "Վերջ", name: to, isEdge: true },
+//     ];
+//     return (
+//         <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 p-4">
+//             <div className="absolute left-6 top-6 bottom-6 w-px bg-gradient-to-b from-emerald-300 via-emerald-500 to-emerald-300" />
+//             <div className="relative space-y-4">
+//                 {all.map((s, i) => (
+//                     <div key={i} className="flex items-start gap-4">
+//                         <div className="mt-1 grid h-3 w-3 place-items-center rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(255,255,255,0.9)]" />
+//                         <div>
+//                             <div className="font-medium text-slate-800">{s.k}</div>
+//                             <div className="text-xs text-slate-500">{s.name || " "}</div>
+//                         </div>
+//                     </div>
+//                 ))}
+//             </div>
+//         </div>
+//     );
+// }
+//
+// function Kv({ icon, v }) { return <div className="flex items-center gap-2 text-slate-700">{icon}<span>{v}</span></div>; }
+// function formatDT(iso) { try { return iso ? new Date(iso).toLocaleString("hy-AM", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"; } catch { return "—"; } }
+//
+// /* ===================== helpers ===================== */
+// const hyNum = (n) => { try { return new Intl.NumberFormat("hy-AM").format(n || 0); } catch { return String(n); } };
+// const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
+//
+// function filterTrips(arr, q) {
+//     if (!q) return arr || [];
+//     const s = q.toLowerCase().trim();
+//     return (arr || []).filter((t) => [t.from_addr, t.to_addr, t.company?.name, t.vehicle?.brand, t.vehicle?.model].filter(Boolean).some((x) => String(x).toLowerCase().includes(s)));
+// }
+//
+// function buildKpis({ active, upcoming, done }) {
+//     const activeCount = active?.length || 0;
+//     const upcomingCount = upcoming?.length || 0;
+//     const doneCount = done?.length || 0;
+//     const revenueAmd = [...(done || []), ...(active || [])].reduce((sum, t) => sum + (t.price_amd || 0) * (t.seats_taken || 0), 0);
+//     return { activeCount, upcomingCount, doneCount, revenueAmd };
+// }
+//
+// function buildDailySeries(items) {
+//     const days = [...Array(14)].map((_, i) => dayjs().subtract(13 - i, "day").format("MM-DD"));
+//     const map = new Map(days.map((d) => [d, 0]));
+//     (items || []).forEach((t) => { const d = t.departure_at ? dayjs(t.departure_at).format("MM-DD") : null; if (d && map.has(d)) map.set(d, (map.get(d) || 0) + 1); });
+//     return days.map((d) => ({ d, trips: map.get(d) || 0 }));
+// }
+//
+// function safePost(name, params) {
+//     try { const url = typeof route === "function" ? route(name, params || {}) : null; if (url && window?.router?.post) return window.router.post(url); } catch {}
+//     console.log("POST:", name, params);
+//     alert(`Դեմո գործողություն: ${name} → ${JSON.stringify(params)}`);
+// }
+//
+// /* ===================== demo data ===================== */
+// function makeDemoTrips() {
+//     const YEREVAN = { lat: 40.1792, lng: 44.4991 };
+//     const GYUMRI = { lat: 40.789, lng: 43.8476 };
+//     const DILIJAN = { lat: 40.741, lng: 44.861 };
+//     const VANADZOR = { lat: 40.815, lng: 44.486 };
+//     const GORIS = { lat: 39.511, lng: 46.341 };
+//     const SEVAN = { lat: 40.548, lng: 44.949 };
+//
+//     const base = [
+//         {
+//             id: 101,
+//             company: { id: 1, name: "HayWay LLC" },
+//             vehicle: { id: 77, brand: "Toyota", model: "Prius", plate: "34 AA 777" },
+//             from_addr: "Երևան, Կենտրոն",
+//             to_addr: "Գյումրի, Կումայրի",
+//             from_lat: YEREVAN.lat, from_lng: YEREVAN.lng,
+//             to_lat: GYUMRI.lat, to_lng: GYUMRI.lng,
+//             departure_at: dayjs().add(2, "hour").toISOString(),
+//             seats_total: 4, seats_taken: 2, price_amd: 6500,
+//             status: "published", driver_state: "assigned",
+//             pending_requests_count: 1, accepted_requests_count: 2,
+//             stops: [
+//                 { position: 1, name: "Աշտարակ", lat: 40.299, lng: 44.359 },
+//                 { position: 2, name: "Թալին", lat: 40.383, lng: 43.885 },
+//             ],
+//         },
+//         {
+//             id: 102,
+//             company: { id: 1, name: "HayWay LLC" },
+//             vehicle: { id: 78, brand: "Hyundai", model: "Elantra", plate: "22 VV 456" },
+//             from_addr: "Երևան, Արաբկիր",
+//             to_addr: "Դիլիջան, կենտրոն",
+//             from_lat: YEREVAN.lat, from_lng: YEREVAN.lng,
+//             to_lat: DILIJAN.lat, to_lng: DILIJAN.lng,
+//             departure_at: dayjs().add(1, "day").hour(9).minute(0).toISOString(),
+//             seats_total: 4, seats_taken: 1, price_amd: 7000,
+//             status: "published", driver_state: "assigned",
+//             pending_requests_count: 0, accepted_requests_count: 1,
+//             stops: [{ position: 1, name: "Սևան", lat: SEVAN.lat, lng: SEVAN.lng }],
+//         },
+//         {
+//             id: 103,
+//             company: { id: 1, name: "HayWay LLC" },
+//             vehicle: { id: 79, brand: "Mercedes", model: "Vito", plate: "88 NN 999" },
+//             from_addr: "Վանաձոր, կենտրոն",
+//             to_addr: "Երևան, Կոմիտաս",
+//             from_lat: VANADZOR.lat, from_lng: VANADZOR.lng,
+//             to_lat: YEREVAN.lat, to_lng: YEREVAN.lng,
+//             departure_at: dayjs().subtract(1, "hour").toISOString(),
+//             seats_total: 6, seats_taken: 4, price_amd: 5000,
+//             status: "published", driver_state: "en_route",
+//             pending_requests_count: 2, accepted_requests_count: 4,
+//             stops: [{ position: 1, name: "Սպիտակ", lat: 40.832, lng: 44.267 }],
+//         },
+//         {
+//             id: 104,
+//             company: { id: 1, name: "HayWay LLC" },
+//             vehicle: { id: 80, brand: "Kia", model: "Rio", plate: "55 TT 123" },
+//             from_addr: "Գորիս",
+//             to_addr: "Երևան",
+//             from_lat: GORIS.lat, from_lng: GORIS.lng,
+//             to_lat: YEREVAN.lat, to_lng: YEREVAN.lng,
+//             departure_at: dayjs().subtract(3, "day").toISOString(),
+//             seats_total: 4, seats_taken: 3, price_amd: 8000,
+//             status: "archived", driver_state: "done",
+//             pending_requests_count: 0, accepted_requests_count: 3,
+//             passengers: [ { id: 201, name: "Արա Մ.", rating: 0, note: "" }, { id: 202, name: "Սոնա Հ.", rating: 0, note: "" } ],
+//             stops: [ { position: 1, name: "Վայք", lat: 39.687, lng: 45.467 }, { position: 2, name: "Արտաշատ", lat: 39.960, lng: 44.549 } ],
+//         },
+//         {
+//             id: 105,
+//             company: { id: 1, name: "HayWay LLC" },
+//             vehicle: { id: 81, brand: "Renault", model: "Megane", plate: "66 QQ 321" },
+//             from_addr: "Սևան",
+//             to_addr: "Երևան",
+//             from_lat: SEVAN.lat, from_lng: SEVAN.lng,
+//             to_lat: YEREVAN.lat, to_lng: YEREVAN.lng,
+//             departure_at: dayjs().add(3, "hour").toISOString(),
+//             seats_total: 4, seats_taken: 0, price_amd: 4500,
+//             status: "published", driver_state: "assigned",
+//             pending_requests_count: 1, accepted_requests_count: 0,
+//             stops: [],
+//         },
+//     ];
+//
+//     return {
+//         active: base.filter((x) => x.driver_state === "en_route"),
+//         upcoming: base.filter((x) => x.driver_state === "assigned"),
+//         done: [
+//             base.find((x) => x.driver_state === "done"),
+//             {
+//                 id: 106,
+//                 company: { id: 1, name: "HayWay LLC" },
+//                 vehicle: { id: 82, brand: "Volkswagen", model: "Caddy", plate: "44 XX 444" },
+//                 from_addr: "Գյումրի",
+//                 to_addr: "Վանաձոր",
+//                 from_lat: GYUMRI.lat, from_lng: GYUMRI.lng,
+//                 to_lat: VANADZOR.lat, to_lng: VANADZOR.lng,
+//                 departure_at: dayjs().subtract(7, "day").toISOString(),
+//                 seats_total: 4, seats_taken: 4, price_amd: 6000,
+//                 status: "archived", driver_state: "done",
+//                 pending_requests_count: 0, accepted_requests_count: 4,
+//                 passengers: [ { id: 203, name: "Տիգրան Ա.", rating: 0, note: "" }, { id: 204, name: "Նունե Ս.", rating: 0, note: "" }, { id: 205, name: "Հակոբ Բ.", rating: 0, note: "" } ],
+//                 stops: [ { position: 1, name: "Ախուրյան", lat: 40.78, lng: 43.89 } ],
+//             },
+//         ].filter(Boolean),
+//     };
+// }
+//
+// function makePassengersFallback() {
+//     return [
+//         { id: 301, name: "Passenger 1", rating: 0, note: "" },
+//         { id: 302, name: "Passenger 2", rating: 0, note: "" },
+//         { id: 303, name: "Passenger 3", rating: 0, note: "" }
+//     ];
+// }
+//
+// /* ===================== dev self-tests ===================== */
+// if (typeof window !== "undefined") { try { runSelfTests(); } catch (e) { console.warn("Self-tests failed", e); } }
+// function runSelfTests() {
+//     const arr = makePassengersFallback();
+//     console.assert(Array.isArray(arr) && arr.length === 3, "makePassengersFallback should return 3 passengers");
+//     console.assert(arr.every((p) => "id" in p && "name" in p && "rating" in p && "note" in p), "passenger objects shape");
+//     const k = buildKpis({ active: [], upcoming: [], done: [] });
+//     console.assert("activeCount" in k && "upcomingCount" in k && "doneCount" in k && "revenueAmd" in k, "kpis object shape");
+//     const s = buildDailySeries([]);
+//     console.assert(Array.isArray(s) && s.length === 14 && s[0] && "d" in s[0] && "trips" in s[0], "daily series shape");
+// }
+
+
+
+
+import React, { useEffect, useMemo, useState } from "react";
+import dayjs from "dayjs";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  LayoutDashboard,
+  Route as RouteIcon,
+  Play,
+  CheckCircle2,
+  History,
+  CalendarClock,
+  Search,
+  Filter,
+  MapPin,
+  Car,
+  Users,
+  Banknote,
+  ArrowRight,
+  TimerReset,
+  Star,
+  X,
+} from "lucide-react";
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+} from "recharts";
+
+/**
+ * CompanyJobs · one‑page demo (no project imports)
+ * - Left sidebar tabs (no full-page scroll)
+ * - Dashboard + Active + Assigned + History
+ * - Emerald/Cyan theme accents
+ * - Recharts for quick trends
+ * - Start/Finish actions with safe fallbacks for Inertia/Ziggy
+ * - Rating modal for finished trips (per-passenger stars + note)
+ * - Enforce single active trip: disable Start if one is running
+ * - Remove specific labels per user request
+ */
+
+function uid(){
+  try{
+    const c = (typeof globalThis!=="undefined" && (globalThis.crypto||window?.crypto)) || null;
+    if (c?.randomUUID) return c.randomUUID();
+    if (c?.getRandomValues){
+      const b = new Uint8Array(16);
+      c.getRandomValues(b);
+      b[6] = (b[6] & 0x0f) | 0x40; // version 4
+      b[8] = (b[8] & 0x3f) | 0x80; // variant 10
+      const hex = Array.from(b, n=>n.toString(16).padStart(2,'0')).join('');
+      return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+    }
+  }catch{}
+  return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,10)}`;
+}
+
+export default function CompanyJobsDemo(props) {
+  const {
+    company: companyIn,
+    active: activeIn,
+    upcoming: upcomingIn,
+    done: doneIn,
+  } = props || {};
+
+  // -------- Demo fallback data (safe for canvas preview) --------
+  const demoCompany = { id: 1, name: "HayWay LLC" };
+  const demoTrips = useMemo(() => makeDemoTrips(), []);
+
+  const active = useMemo(() => (Array.isArray(activeIn) && activeIn.length ? activeIn : demoTrips.active), [activeIn, demoTrips]);
+  const upcoming = useMemo(() => (Array.isArray(upcomingIn) && upcomingIn.length ? upcomingIn : demoTrips.upcoming), [upcomingIn, demoTrips]);
+  const done = useMemo(() => (Array.isArray(doneIn) && doneIn.length ? doneIn : demoTrips.done), [doneIn, demoTrips]);
+  const company = companyIn || demoCompany;
+
+  // UI state
+  const [tab, setTab] = useState("dashboard"); // dashboard | active | upcoming | history
+  const [q, setQ] = useState("");
+  const [rateTrip, setRateTrip] = useState(null); // for rating modal
+
+  const filtered = useMemo(() => ({
+    active: filterTrips(active, q),
+    upcoming: filterTrips(upcoming, q),
+    done: filterTrips(done, q),
+  }), [active, upcoming, done, q]);
+
+  const kpis = useMemo(() => buildKpis({ active: filtered.active, upcoming: filtered.upcoming, done: filtered.done }), [filtered]);
+  const daily = useMemo(() => buildDailySeries([...active, ...done, ...upcoming]), [active, done, upcoming]);
+
+  // Single-active flag (global, not filtered)
+  const hasActiveAny = (active || []).length > 0;
+
+  return (
+    <div className="min-h-screen w-full bg-gradient-to-br from-emerald-50 to-cyan-50 text-slate-900">
+      <div className="mx-auto max-w-7xl px-4 py-6">
+        {/* Shell */}
+        <div className="grid grid-cols-12 gap-5">
+          {/* Sidebar */}
+          <aside className="col-span-12 md:col-span-3 lg:col-span-3">
+            <div className="sticky top-4 rounded-3xl border border-emerald-200/60 bg-white/80 backdrop-blur p-4">
+              <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+                <div className="h-10 w-10 rounded-2xl bg-gradient-to-br from-emerald-500 to-cyan-500 grid place-content-center text-white">
+                  <RouteIcon size={20} />
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-wide text-slate-500">Ընկերություն</div>
+                  {/* name removed per request */}
+                </div>
+              </div>
+
+              <nav className="mt-3 space-y-1">
+                <SidebarBtn icon={<LayoutDashboard size={18} />} label="Դաշբորդ" active={tab === "dashboard"} onClick={() => setTab("dashboard")} />
+                <SidebarBtn icon={<TimerReset size={18} />} label="Ընթացքում" active={tab === "active"} onClick={() => setTab("active")} />
+                <SidebarBtn icon={<CalendarClock size={18} />} label="Նշանակված" active={tab === "upcoming"} onClick={() => setTab("upcoming")} />
+                <SidebarBtn icon={<History size={18} />} label="Պատմություն" active={tab === "history"} onClick={() => setTab("history")} />
+              </nav>
+
+              <div className="mt-6">
+                <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">Որոնում</div>
+                <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+                  <Search size={16} className="text-slate-400" />
+                  <input
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    placeholder="քաղաք, հասցե…"
+                    className="w-full bg-transparent outline-none text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-6 rounded-2xl bg-gradient-to-br from-emerald-100 to-cyan-100 p-3">
+                <div className="text-xs text-slate-600">Արագ թվեր</div>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-center">
+                  {/* removed: Ընթացք */}
+                  <KpiMini label="Սպասվող" value={kpis.upcomingCount} />
+                  <KpiMini label="Ավարտված" value={kpis.doneCount} />
+                </div>
+              </div>
+            </div>
+          </aside>
+
+          {/* Content */}
+          <main className="col-span-12 md:col-span-9 lg:col-span-9">
+            <div className="rounded-3xl border border-emerald-200/60 bg-white/90 backdrop-blur p-4 md:p-6">
+              {/* header removed per request */}
+
+              <AnimatePresence mode="wait">
+                {tab === "dashboard" && (
+                  <motion.div key="dashboard" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
+                    <DashboardPanel kpis={kpis} series={daily} recent={[...active, ...upcoming].slice(0, 6)} hasActive={hasActiveAny} />
+                  </motion.div>
+                )}
+                {tab === "active" && (
+                  <motion.div key="active" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
+                    {/* removed title+subtitle per request */}
+                    <TripsGrid items={filtered.active} kind="active" hasActive={hasActiveAny} />
+                  </motion.div>
+                )}
+                {tab === "upcoming" && (
+                  <motion.div key="upcoming" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
+                    <SectionTitle title="Նշանակված ինձ" subtitle="Սպասվող մեկնարկներ և հերթագրվածներ" />
+                    <TripsGrid items={filtered.upcoming} kind="upcoming" hasActive={hasActiveAny} />
+                  </motion.div>
+                )}
+                {tab === "history" && (
+                  <motion.div key="history" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
+                    <SectionTitle title="Վերջին ավարտվածները" subtitle="Ավարտված երթուղիների կողքին տեսեք միավորներն ու եկամուտը" />
+                    <TripsGrid items={filtered.done} kind="done" onRateTrip={setRateTrip} hasActive={hasActiveAny} />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Rating modal */}
+              <RatePassengersModal trip={rateTrip} open={!!rateTrip} onClose={() => setRateTrip(null)} />
+            </div>
+          </main>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ===================== UI bits ===================== */
+function SidebarBtn({ icon, label, active, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className={[
+        "w-full flex items-center gap-3 rounded-xl px-3 py-2 text-sm",
+        active
+          ? "bg-gradient-to-r from-emerald-500 to-cyan-500 text-white shadow"
+          : "hover:bg-slate-50 text-slate-700 border border-transparent",
+      ].join(" ")}
+    >
+      <span className="shrink-0">{icon}</span>
+      <span className="truncate">{label}</span>
+    </button>
+  );
+}
+
+function Header() { return null; }
+
+function SectionTitle({ title, subtitle }) {
+  return (
+    <div className="mb-4">
+      <h2 className="text-xl font-bold text-slate-900">{title}</h2>
+      {subtitle && <div className="text-sm text-slate-500">{subtitle}</div>}
+    </div>
+  );
+}
+
+function KpiMini({ label, value }) {
+  return (
+    <div className="rounded-xl bg-white/70 border border-emerald-200/60 py-3">
+      <div className="text-xs text-slate-500">{label}</div>
+      <div className="text-lg font-bold">{hyNum(value)}</div>
+    </div>
+  );
+}
+
+function DashboardPanel({ kpis, series, recent, hasActive }) {
+  return (
+    <div className="mt-5 space-y-6">
+      {/* KPI cards */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        {/* removed: Ընթացք */}
+        <KpiCard icon={<CalendarClock />} label="Սպասվող" value={kpis.upcomingCount} hint="քանակ" />
+        <KpiCard icon={<CheckCircle2 />} label="Ավարտված" value={kpis.doneCount} hint="վերջին 90դ" />
+        <KpiCard icon={<Banknote />} label="Եկամուտ" value={`${hyNum(kpis.revenueAmd)} AMD`} hint="գնահատված" />
+      </div>
+
+      {/* Area chart */}
+      <div className="rounded-2xl border border-slate-100 p-3">
+        <div className="text-sm text-slate-600 mb-2">Վերջին 14 օր · երթուղիների ակտիվություն</div>
+        <div className="h-48">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={series} margin={{ left: 8, right: 8, top: 8, bottom: 8 }}>
+              <defs>
+                <linearGradient id="c1" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.05} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+              <XAxis dataKey="d" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+              <Tooltip formatter={(v, n) => [v, n === "trips" ? "Երթուղիներ" : "Տեսքեր"]} />
+              <Area type="monotone" dataKey="trips" stroke="#10b981" fill="url(#c1)" strokeWidth={2} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Recent list */}
+      <div>
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {recent.map((t) => (
+            <TripCard key={`rec-${t.id}`} t={t} kind={t.driver_state} hasActive={hasActive} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function KpiCard({ icon, label, value, hint }) {
+  return (
+    <div className="rounded-2xl border border-emerald-200/60 bg-white p-4 flex items-center gap-3">
+      <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-500 to-cyan-500 text-white grid place-content-center">
+        {icon}
+      </div>
+      <div className="flex-1">
+        <div className="text-xs text-slate-500">{label}</div>
+        <div className="text-xl font-extrabold leading-6">{value}</div>
+        {hint && <div className="text-[11px] text-slate-400">{hint}</div>}
+      </div>
+    </div>
+  );
+}
+
+function TripsGrid({ items, kind, onRateTrip, hasActive }) {
+  if (!items?.length) {
+    return <EmptyState />;
+  }
+  return (
+    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+      {items.map((t) => (
+        <TripCard key={t.id} t={t} kind={kind} onRateTrip={onRateTrip} hasActive={hasActive} />
+      ))}
+    </div>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div className="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-slate-500 bg-slate-50/50">
+      Տվյալներ չկան
+    </div>
+  );
+}
+
+function TripCard({ t, kind, onRateTrip, hasActive }) {
+  const when = t.departure_at ? dayjs(t.departure_at).format("MM-DD HH:mm") : "—";
+  const seatsTaken = clamp(t.seats_taken || 0, 0, t.seats_total || 0);
+  const progress = (100 * seatsTaken) / Math.max(1, t.seats_total || 1);
+  const btn = actionBtn(kind, t, hasActive);
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 hover:shadow-sm transition">
+      <div className="flex items-center justify-between text-xs text-slate-500">
+        <span>{t.company?.name || ""}</span>
+        <span className="inline-flex items-center gap-1"><Car size={14} />{t.vehicle ? `${t.vehicle.brand} ${t.vehicle.model}` : "—"}</span>
+      </div>
+
+      <div className="mt-2 font-semibold text-slate-900 flex items-center gap-2">
+        <MapPin size={16} className="text-emerald-600" />
+        <span className="truncate">{t.from_addr}</span>
+        <ArrowRight size={16} className="text-slate-400" />
+        <span className="truncate">{t.to_addr}</span>
+      </div>
+
+      <div className="mt-1 text-sm text-slate-600 flex items-center gap-4">
+        <span className="inline-flex items-center gap-1"><CalendarClock size={14} /> {when}</span>
+        <span className="inline-flex items-center gap-1"><Users size={14} /> {seatsTaken}/{t.seats_total}</span>
+      </div>
+
+      <div className="mt-3 h-2 w-full rounded-full bg-slate-100 overflow-hidden">
+        <div className="h-full bg-gradient-to-r from-emerald-500 to-cyan-500" style={{ width: `${progress}%` }} />
+      </div>
+
+      <div className="mt-2 text-[13px] text-slate-500 flex items-center gap-3">
+        <span className="inline-flex items-center gap-1"><Banknote size={14} /> {hyNum(t.price_amd)} AMD</span>
+        {t.pending_requests_count != null && (
+          <span className="inline-flex items-center gap-1"><Filter size={14} /> հայտեր {t.pending_requests_count} • հսթ {t.accepted_requests_count ?? 0}</span>
+        )}
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2 items-center">
+        {btn && (
+          <button onClick={() => !btn.disabled && safePost(btn.route, { trip: t.id })} disabled={btn.disabled} className={(btn.disabled ? "opacity-50 cursor-not-allowed " : "") + btn.cls}>
+            {btn.icon}
+            <span>{btn.text}</span>
+          </button>
+        )}
+        {/* non-functional details button as requested */}
+        <button disabled className="px-3 py-1.5 rounded-xl border border-slate-200 text-slate-500 text-sm opacity-60 cursor-not-allowed">Подробности</button>
+        {kind === "done" && (
+          <button onClick={() => onRateTrip && onRateTrip(t)} className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 text-white text-sm">
+            Գնահատել
+          </button>
+        )}
+      </div>
+      {btn?.hint && <div className="mt-1 text-xs text-amber-600">{btn.hint}</div>}
+    </div>
+  );
+}
+
+function actionBtn(kind, t, hasActive) {
+  if (kind === "upcoming" || t.driver_state === "assigned") {
+    const disabled = !!hasActive; // only one trip can be active
+    return {
+      text: "Սկսել",
+      route: "driver.jobs.start",
+      cls: "inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900 text-[#ffdd2c] text-sm",
+      icon: <Play size={16} />,
+      disabled,
+      hint: disabled ? "Ակտիվ երթուղի արդեն կա" : null,
+    };
+  }
+  if (kind === "active" || t.driver_state === "en_route") {
+    return {
+      text: "Ավարտել",
+      route: "driver.jobs.finish",
+      cls: "inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-600 text-white text-sm",
+      icon: <CheckCircle2 size={16} />,
+      disabled: false,
+    };
+  }
+  return null;
+}
+
+/* ===================== Rating modal ===================== */
+function RatePassengersModal({ trip, open, onClose }) {
+  const [rows, setRows] = useState(() =>
+    (trip?.passengers?.length ? trip.passengers : makePassengersFallback()).map((p) => ({ ...p }))
+  );
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e) => { if (e.key === 'Escape') onClose && onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => { document.body.style.overflow = prev; window.removeEventListener('keydown', onKey); };
+  }, [open, onClose]);
+
+  if (!open || !trip) return null;
+
+  const setRating = (idx, rating) => setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, rating } : r)));
+  const setNote = (idx, note) => setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, note } : r)));
+
+  const canSubmit = rows.some((r) => (r.rating || 0) > 0);
+
+  const submit = async () => {
+    setSubmitting(true);
+    try {
+      await safePost('driver.ratings.bulk', {
+        trip: trip.id,
+        ratings: rows
+          .filter((r) => (r.rating || 0) > 0)
+          .map((r) => ({ user_id: r.id, rating: r.rating, description: r.note || null })),
+      });
+    } finally {
+      setSubmitting(false);
+      onClose && onClose();
+    }
+  };
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-16 sm:pt-[12vh]"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+        >
+          {/* overlay */}
+          <motion.div
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+          />
+
+          {/* centered dialog */}
+          <motion.div
+            role="dialog"
+            aria-modal="true"
+            className="relative w-[min(720px,92vw)] max-h-[84vh] rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden flex flex-col"
+            initial={{ scale: 0.98, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1, transition: { type: 'spring', stiffness: 260, damping: 22 } }}
+            exit={{ scale: 0.98, opacity: 0 }}
+          >
+            {/* header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+              <div>
+                <div className="text-xs text-slate-500">Գնահատում · {trip.from_addr} → {trip.to_addr}</div>
+                <div className="font-bold text-slate-900">Ուղևորների գնահատականներ</div>
+              </div>
+              <button onClick={onClose} className="p-2 rounded-lg hover:bg-slate-50" aria-label="Close rating modal"><X size={18} /></button>
+            </div>
+
+            {/* body */}
+            <div className="px-4 py-3 space-y-3 overflow-y-auto">
+              {rows.map((r, idx) => (
+                <div key={r.id} className="rounded-xl border border-slate-200 p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="font-medium">{r.name || 'Passenger'}</div>
+                    <StarRating value={r.rating || 0} onChange={(v) => setRating(idx, v)} />
+                  </div>
+                  <textarea
+                    placeholder="նկարագրություն (ոչ պարտադիր)"
+                    className="mt-2 w-full rounded-lg border border-slate-200 p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-400"
+                    rows={2}
+                    value={r.note || ''}
+                    onChange={(e) => setNote(idx, e.target.value)}
+                  />
+                </div>
+              ))}
+            </div>
+
+            {/* footer */}
+            <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-end gap-2">
+              <button onClick={onClose} className="px-3 py-1.5 rounded-xl border border-slate-200 text-slate-700 text-sm">Չեղարկել</button>
+              <button onClick={submit} disabled={!canSubmit || submitting} className="px-3 py-1.5 rounded-xl bg-emerald-600 text-white text-sm disabled:opacity-50 disabled:cursor-not-allowed">Պահպանել</button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+function StarRating({ value = 0, onChange }) {
+  const arr = [1, 2, 3, 4, 5];
+  return (
+    <div className="inline-flex items-center">
+      {arr.map((i) => (
+        <button key={i} onClick={() => onChange && onChange(i)} className="p-1" aria-label={`rate-${i}`}>
+          <Star size={18} className={i <= value ? "text-amber-400 fill-amber-400" : "text-slate-300"} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ===================== helpers ===================== */
+const hyNum = (n) => {
+  try { return new Intl.NumberFormat("hy-AM").format(n || 0); } catch { return String(n); }
+};
+const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
+
+function filterTrips(arr, q) {
+  if (!q) return arr || [];
+  const s = q.toLowerCase().trim();
+  return (arr || []).filter((t) =>
+    [t.from_addr, t.to_addr, t.company?.name, t.vehicle?.brand, t.vehicle?.model]
+      .filter(Boolean)
+      .some((x) => String(x).toLowerCase().includes(s))
+  );
+}
+
+function buildKpis({ active, upcoming, done }) {
+  const activeCount = active?.length || 0;
+  const upcomingCount = upcoming?.length || 0;
+  const doneCount = done?.length || 0;
+  const revenueAmd = [...(done || []), ...(active || [])]
+    .reduce((sum, t) => sum + (t.price_amd || 0) * (t.seats_taken || 0), 0);
+  return { activeCount, upcomingCount, doneCount, revenueAmd };
+}
+
+function buildDailySeries(items = []) {
+  // last 14 days
+  const days = [...Array(14)].map((_, i) => dayjs().subtract(13 - i, "day").format("MM-DD"));
+  const map = new Map(days.map((d) => [d, 0]));
+  const list = Array.isArray(items) ? items : [];
+  list.forEach((t) => {
+    const iso = t && t.departure_at ? t.departure_at : null;
+    const d = iso ? dayjs(iso).format("MM-DD") : null;
+    if (d && map.has(d)) map.set(d, (map.get(d) || 0) + 1);
+  });
+  return days.map((d) => ({ d, trips: map.get(d) || 0 }));
+}
+
+function safePost(name, params) {
+  try {
+    // Ziggy route() present?
+    const url = typeof route === "function" ? route(name, params || {}) : null;
+    if (url && typeof window !== 'undefined' && window && window.router && typeof window.router.post === 'function') {
+      return window.router.post(url);
+    }
+  } catch {}
+  // Inertia or Ziggy not present in demo. Log instead.
+  console.log("POST:", name, params);
+  alert(`Դեմո գործողություն: ${name} → ${JSON.stringify(params)}`);
+}
+
+function makeDemoTrips() {
+  const base = [
+    {
+      id: 101,
+      company: { id: 1, name: "HayWay LLC" },
+      vehicle: { id: 77, brand: "Toyota", model: "Prius", plate: "34 AA 777" },
+      from_addr: "Երևան, Կենտրոն",
+      to_addr: "Գյումրի, Կումայրի",
+      departure_at: dayjs().add(2, "hour").toISOString(),
+      seats_total: 4,
+      seats_taken: 2,
+      price_amd: 6500,
+      status: "published",
+      driver_state: "assigned",
+      pending_requests_count: 1,
+      accepted_requests_count: 2,
+    },
+    {
+      id: 102,
+      company: { id: 1, name: "HayWay LLC" },
+      vehicle: { id: 78, brand: "Hyundai", model: "Elantra", plate: "22 VV 456" },
+      from_addr: "Երևան, Արաբկիր",
+      to_addr: "Դիլիջան, կենտրոն",
+      departure_at: dayjs().add(1, "day").hour(9).minute(0).toISOString(),
+      seats_total: 4,
+      seats_taken: 1,
+      price_amd: 7000,
+      status: "published",
+      driver_state: "assigned",
+      pending_requests_count: 0,
+      accepted_requests_count: 1,
+    },
+    {
+      id: 103,
+      company: { id: 1, name: "HayWay LLC" },
+      vehicle: { id: 79, brand: "Mercedes", model: "Vito", plate: "88 NN 999" },
+      from_addr: "Վանաձոր, կենտրոն",
+      to_addr: "Երևան, Կոմիտաս",
+      departure_at: dayjs().subtract(1, "hour").toISOString(),
+      seats_total: 6,
+      seats_taken: 4,
+      price_amd: 5000,
+      status: "published",
+      driver_state: "en_route",
+      pending_requests_count: 2,
+      accepted_requests_count: 4,
+    },
+    {
+      id: 104,
+      company: { id: 1, name: "HayWay LLC" },
+      vehicle: { id: 80, brand: "Kia", model: "Rio", plate: "55 TT 123" },
+      from_addr: "Գորիս",
+      to_addr: "Երևան",
+      departure_at: dayjs().subtract(3, "day").toISOString(),
+      seats_total: 4,
+      seats_taken: 3,
+      price_amd: 8000,
+      status: "archived",
+      driver_state: "done",
+      pending_requests_count: 0,
+      accepted_requests_count: 3,
+      passengers: [
+        { id: 201, name: "Արա Մ.", rating: 0, note: "" },
+        { id: 202, name: "Սոնա Հ.", rating: 0, note: "" },
+      ],
+    },
+    {
+      id: 105,
+      company: { id: 1, name: "HayWay LLC" },
+      vehicle: { id: 81, brand: "Renault", model: "Megane", plate: "66 QQ 321" },
+      from_addr: "Սևան",
+      to_addr: "Երևան",
+      departure_at: dayjs().add(3, "hour").toISOString(),
+      seats_total: 4,
+      seats_taken: 0,
+      price_amd: 4500,
+      status: "published",
+      driver_state: "assigned",
+      pending_requests_count: 1,
+      accepted_requests_count: 0,
+    },
+  ];
+
+  return {
+    active: base.filter((x) => x.driver_state === "en_route"),
+    upcoming: base.filter((x) => x.driver_state === "assigned"),
+    done: [
+      base.find((x) => x.driver_state === "done"),
+      {
+        id: 106,
+        company: { id: 1, name: "HayWay LLC" },
+        vehicle: { id: 82, brand: "Volkswagen", model: "Caddy", plate: "44 XX 444" },
+        from_addr: "Գյումրի",
+        to_addr: "Վանաձոր",
+        departure_at: dayjs().subtract(7, "day").toISOString(),
+        seats_total: 4,
+        seats_taken: 4,
+        price_amd: 6000,
+        status: "archived",
+        driver_state: "done",
+        pending_requests_count: 0,
+        accepted_requests_count: 4,
+        passengers: [
+          { id: 203, name: "Տիգրան Ա.", rating: 0, note: "" },
+          { id: 204, name: "Նունե Ս.", rating: 0, note: "" },
+          { id: 205, name: "Հակոբ Բ.", rating: 0, note: "" },
+        ],
+      },
+    ].filter(Boolean),
+  };
+}
+
+function makePassengersFallback() {
+  return [
+    { id: 301, name: "Passenger 1", rating: 0, note: "" },
+    { id: 302, name: "Passenger 2", rating: 0, note: "" },
+    { id: 303, name: "Passenger 3", rating: 0, note: "" }
+  ];
+}
+
+/* ===================== dev self-tests ===================== */
+if (typeof window !== 'undefined') {
+  try { runSelfTests(); } catch (e) { console.warn('Self-tests failed', e); }
+}
+function runSelfTests() {
+  const arr = makePassengersFallback();
+  console.assert(Array.isArray(arr) && arr.length === 3, 'makePassengersFallback should return 3 passengers');
+  console.assert(arr.every(p => 'id' in p && 'name' in p && 'rating' in p && 'note' in p), 'passenger objects shape');
+
+  const k = buildKpis({ active: [], upcoming: [], done: [] });
+  console.assert('activeCount' in k && 'upcomingCount' in k && 'doneCount' in k && 'revenueAmd' in k, 'kpis object shape');
+
+  // daily series: empty
+  const s0 = buildDailySeries([]);
+  console.assert(Array.isArray(s0) && s0.length === 14 && s0[0] && 'd' in s0[0] && 'trips' in s0[0], 'daily series shape on empty');
+
+  // daily series: one today item
+  const s1 = buildDailySeries([{ departure_at: dayjs().toISOString() }]);
+  const todayKey = dayjs().format('MM-DD');
+  const row = s1.find(r => r.d === todayKey);
+  console.assert(row && row.trips >= 1, 'daily series counts today');
+
+  // filterTrips basic
+  const filtered = filterTrips([
+    { from_addr: 'A', to_addr: 'B', company: { name: 'X' }, vehicle: { brand: 'Y', model: 'Z' } }
+  ], 'x');
+  console.assert(Array.isArray(filtered) && filtered.length === 1, 'filterTrips basic works');
+}
+
+// --- uid self-test (dev only) ---
+if (typeof window !== 'undefined'){
+  try{
+    const s = new Set(Array.from({length:256}, ()=>uid()));
+    console.assert(s.size===256, 'uid should be unique for 256 samples');
+  }catch(e){ /* no-op */ }
+}
+
+
+
+

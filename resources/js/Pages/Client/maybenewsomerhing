@@ -1,0 +1,763 @@
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Car, MapPin, Calendar, Users, ArrowLeftRight, Search,
+  Star, ShieldCheck, MessageSquare, Building2, ChevronRight,
+  TicketCheck, Plus, X, Filter, Compass, Route, Map, UserRound
+} from "lucide-react";
+
+/**
+ * HayWay · Intercity Rides Demo (single-file JSX)
+ * - Tailwind UI + Framer Motion + MapLibre (CDN injected)
+ * - Mocked backend derived from your migrations: users, companies, vehicles, trips, rider_orders, driver_offers, ratings, amenities
+ * - Features: Explore trips, filters, animated cards, map picker, create Order, pseudo Offers, chat preview, profile panels
+ *
+ * Notes:
+ * - All labels kept mostly Armenian to match your product, some tech terms in English
+ * - Replace mocked API with real endpoints (/api/orders, /api/offers, etc.) when wiring to Laravel+Inertia
+ */
+
+/**************************** Utilities ****************************/
+const hyNum = new Intl.NumberFormat("hy-AM");
+const fmtAMD = (n)=> hyNum.format(Math.max(0, Number(n)||0)) + " AMD";
+const nowIso = ()=> new Date().toISOString();
+const rand = (seed => () => (seed = (seed*9301 + 49297) % 233280)/233280)(42);
+const rnd = (a,b)=> a + Math.floor(rand()*(b-a+1));
+const rfloat = (a,b)=> a + rand()*(b-a);
+const pick = (arr)=> arr[Math.floor(rand()*arr.length)];
+
+function haversineKm(a,b){
+  const R=6371; const dLat=(b.lat-a.lat)*Math.PI/180; const dLon=(b.lng-a.lng)*Math.PI/180;
+  const sa=Math.sin(dLat/2)**2 + Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(sa));
+}
+
+function ensureMapLibre(){
+  if (typeof window === 'undefined') return Promise.resolve(null);
+  if (window.maplibregl) return Promise.resolve(window.maplibregl);
+  return new Promise((res,rej)=>{
+    if (!document.getElementById('maplibre-css')){
+      const l=document.createElement('link'); l.id='maplibre-css'; l.rel='stylesheet';
+      l.href='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css'; document.head.appendChild(l);
+    }
+    const s=document.createElement('script'); s.src='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js'; s.async=true;
+    s.onload=()=>res(window.maplibregl); s.onerror=()=>rej(new Error('MapLibre load failed')); document.body.appendChild(s);
+  });
+}
+
+const typeKey = () => pick(["AB","PAX_PAX","PAX_B","A_PAX"]);
+const typeLabel = (k)=> ({AB:"Ֆիքսված A→B",PAX_PAX:"Համատեղ ուղևոր",PAX_B:"Ուղևոր→B",A_PAX:"A→Ուղևոր"}[k]||"Ուղևորություն");
+const zoneLabel = (z)=> z==="FREE"?"անվճար գոտի": z==="PAID"?"վճարովի գոտի": z==="OUT"?"դուրս գոտուց": null;
+
+/**************************** Mocked DB ****************************/
+function seedData(){
+  // Cities in AM roughly
+  const cities=[
+    {n:"Երևան",lat:40.1772,lng:44.5035},
+    {n:"Գյումրի",lat:40.7892,lng:43.8476},
+    {n:"Վանաձոր",lat:40.8128,lng:44.4886},
+    {n:"Դիլիջան",lat:40.7417,lng:44.8639},
+    {n:"Գորիս",lat:39.5117,lng:46.3412},
+    {n:"Սևան",lat:40.5482,lng:44.9489},
+    {n:"Աբովյան",lat:40.2697,lng:44.6236},
+    {n:"Աշտարակ",lat:40.2991,lng:44.3599},
+  ];
+
+  // Amenities
+  const amenityCats=[
+    {id:1,name:"Comfort",amenities:[
+      {id:11,name:"AC"},{id:12,name:"USB"},{id:13,name:"Wi‑Fi"},{id:14,name:"Music"}
+    ]},
+    {id:2,name:"Safety",amenities:[
+      {id:21,name:"ABS"},{id:22,name:"Airbag"}
+    ]},
+  ];
+
+  // Users + companies
+  const users=Array.from({length:18},(_,i)=>({
+    id:i+1,
+    name:`Վարորդ ${i+1}`,
+    email:`driver${i+1}@demo.am`,
+    rating:+(4 + rand()).toFixed(2),
+    role: i<3?"company":"driver",
+    avatar:`https://api.dicebear.com/9.x/identicon/svg?seed=${i+1}`
+  }));
+
+  const companies=[1,2,3].map(i=>({
+    id:i,
+    name:["HayWay LLC","TransArarat","VanTaxi"][i-1],
+    rating:+(4.3 + rand()*0.7).toFixed(2),
+    logo:`https://api.dicebear.com/9.x/shapes/svg?seed=c${i}`,
+    members_count:rnd(5,20),
+    status:"approved",
+  }));
+
+  // Vehicles
+  const brands=[["Toyota","Camry"],["Hyundai","Elantra"],["Kia","Forte"],["VW","Passat"],["Skoda","Octavia"],["BMW","3"],["Mercedes","C"]];
+  const vehicles=Array.from({length:20},(_,i)=>{
+    const [b,m]=pick(brands);
+    return {
+      id:i+1,
+      user_id: pick(users).id,
+      brand:b, model:m, seats:rnd(3,6), color: pick(["black","white","silver","blue"]) ,
+      plate:`${String.fromCharCode(65+rnd(0,25))}${String.fromCharCode(65+rnd(0,25))}-${rnd(100,999)}`,
+      status:"active"
+    };
+  });
+
+  // Trips
+  const trips=Array.from({length:22},(_,i)=>{
+    const a=pick(cities), b=pick(cities.filter(c=>c!==a));
+    const depTs=Date.now()+rnd(1,48)*3600*1000; // 1..48h
+    const etaSec=rnd(30,240)*60; // 0.5..4h
+    const price=rnd(1500,12000);
+    const seats=rnd(3,6); const taken=rnd(0,seats-1);
+    const driver=pick(users);
+    const v=pick(vehicles);
+    const com = rand()<0.35? pick(companies): null;
+    const rp=[0,0.25,0.5,0.75,1].map(t=>({
+      lat: a.lat + (b.lat-a.lat)*t + rfloat(-0.02,0.02),
+      lng: a.lng + (b.lng-a.lng)*t + rfloat(-0.02,0.02),
+    }));
+    return {
+      id:i+1, user_id:driver.id, vehicle_id:v.id,
+      from_addr:a.n, to_addr:b.n,
+      from_lat:a.lat, from_lng:a.lng, to_lat:b.lat, to_lng:b.lng,
+      departure_at: new Date(depTs).toISOString(),
+      seats_total:seats, seats_taken:taken,
+      price_amd: price,
+      eta_sec: etaSec,
+      status: "published",
+      type_key: typeKey(),
+      corridor_km: 5,
+      route_points: rp,
+      route_length_km: Math.round(haversineKm({lat:a.lat,lng:a.lng},{lat:b.lat,lng:b.lng})*10)/10,
+      amenities: pick([[],[11,12],[11,13],[11,12,13,21]]).map(id=>({id})) ,
+      driver: { id:driver.id, name:driver.name, rating:driver.rating },
+      company: com,
+      match: { start_zone: pick(["FREE","PAID","OUT"]), end_zone: pick(["FREE","PAID","OUT"]), addon: { from_amd: rnd(0,800), to_amd: rnd(0,800) } }
+    };
+  });
+
+  // Orders
+  const orders = Array.from({length:6},(_,i)=>{
+    const c=pick(users);
+    const from=pick(cities), to=pick(cities.filter(x=>x!==from));
+    const dayOff=rnd(1,4);
+    return {
+      id:i+1,
+      client_user_id: c.id,
+      from_addr: from.n, to_addr: to.n,
+      from_lat: from.lat, from_lng: from.lng,
+      to_lat: to.lat, to_lng: to.lng,
+      when_from: new Date(Date.now()+dayOff*3600*1000).toISOString(),
+      when_to: new Date(Date.now()+(dayOff+6)*3600*1000).toISOString(),
+      seats: rnd(1,3), payment: pick(["cash","card"]),
+      desired_price_amd: pick([null, rnd(2000,10000)]),
+      status: "open",
+      meta:null
+    };
+  });
+
+  // Offers
+  const offers=[];
+
+  return {users, companies, vehicles, trips, amenityCats, orders, offers};
+}
+
+/**************************** Demo API ****************************/
+const DB = (()=>{
+  const key='hayway-demo-db-v3';
+  const load = ()=> {
+    const raw=localStorage.getItem(key);
+    if (raw){ try { return JSON.parse(raw);} catch{ /*noop*/ } }
+    const s=seedData(); localStorage.setItem(key, JSON.stringify(s)); return s;
+  };
+  const state = load();
+  const save = ()=> localStorage.setItem(key, JSON.stringify(state));
+  return {
+    getState: ()=> state,
+    listTrips: ()=> Promise.resolve(structuredClone(state.trips)),
+    listAmenities: ()=> Promise.resolve(structuredClone(state.amenityCats)),
+    listOrders: ()=> Promise.resolve(structuredClone(state.orders)),
+    createOrder: async (payload)=>{
+      const id = (state.orders.at(-1)?.id||0)+1;
+      const order = { id, status:'open', meta:null, ...payload };
+      state.orders.push(order); save();
+      return structuredClone(order);
+    },
+    listOffers: async ()=> structuredClone(state.offers),
+    createOffer: async (payload)=>{
+      const id = (state.offers.at(-1)?.id||0)+1;
+      const o={ id, status:'pending', created_at: nowIso(), ...payload };
+      state.offers.push(o); save();
+      return structuredClone(o);
+    },
+  };
+})();
+
+/**************************** App ****************************/
+export default function HayWayDemo(){
+  const [tab,setTab]=useState('explore');
+  const [trips,setTrips]=useState([]);
+  const [amenCats,setAmenCats]=useState([]);
+  const [orders,setOrders]=useState([]);
+  const [offers,setOffers]=useState([]);
+
+  useEffect(()=>{(async()=>{
+    setTrips(await DB.listTrips());
+    setAmenCats(await DB.listAmenities());
+    setOrders(await DB.listOrders());
+    setOffers(await DB.listOffers());
+  })();},[]);
+
+  const refresh = async ()=>{
+    setTrips(await DB.listTrips());
+    setOrders(await DB.listOrders());
+    setOffers(await DB.listOffers());
+  };
+
+  return (
+    <div className="min-h-screen bg-[radial-gradient(70%_60%_at_20%_10%,rgba(16,185,129,.18),transparent_50%),radial-gradient(60%_50%_at_80%_0%,rgba(6,182,212,.18),transparent_50%)]">
+      <Header tab={tab} onTab={setTab} onRefresh={refresh} />
+      <main className="mx-auto max-w-7xl px-4 pb-16">
+        <AnimatePresence mode="wait">
+          {tab==='explore' && (
+            <motion.div key="explore" initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} exit={{opacity:0,y:10}}>
+              <ExplorePage trips={trips} amenityCats={amenCats} onCreateOrder={async (draft)=>{
+                const created=await DB.createOrder(draft); setOrders(o=>[...o,created]);
+              }}/>
+            </motion.div>
+          )}
+          {tab==='orders' && (
+            <motion.div key="orders" initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} exit={{opacity:0,y:10}}>
+              <OrdersPage orders={orders} onCreateOffer={async (offer)=>{
+                const o=await DB.createOffer(offer); setOffers(x=>[...x,o]);
+              }}/>
+            </motion.div>
+          )}
+          {tab==='offers' && (
+            <motion.div key="offers" initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} exit={{opacity:0,y:10}}>
+              <OffersPage offers={offers} />
+            </motion.div>
+          )}
+          {tab==='chat' && (
+            <motion.div key="chat" initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} exit={{opacity:0,y:10}}>
+              <ChatPreview />
+            </motion.div>
+          )}
+          {tab==='companies' && (
+            <motion.div key="companies" initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} exit={{opacity:0,y:10}}>
+              <CompaniesGrid />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </main>
+      <Footer />
+    </div>
+  );
+}
+
+/**************************** Header ****************************/
+function Header({tab,onTab,onRefresh}){
+  const tabs=[
+    {id:'explore',label:'Որոնել',icon:Search},
+    {id:'orders',label:'Orders',icon:TicketCheck},
+    {id:'offers',label:'Offers',icon:Plus},
+    {id:'chat',label:'Չատ',icon:MessageSquare},
+    {id:'companies',label:'Ընկերություններ',icon:Building2},
+  ];
+  return (
+    <div className="sticky top-0 z-50 backdrop-blur border-b border-white/40 bg-white/60">
+      <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
+        <div className="flex items-center gap-3">
+          <div className="h-9 w-9 grid place-items-center rounded-xl bg-gradient-to-br from-emerald-500 to-cyan-500 text-white shadow">
+            <Car size={18}/>
+          </div>
+          <div className="font-semibold">HayWay · Demo</div>
+        </div>
+        <nav className="flex gap-1 rounded-2xl border border-slate-200 bg-white p-1 shadow">
+          {tabs.map(t=>{
+            const Icon=t.icon; const active=tab===t.id;
+            return (
+              <button key={t.id} onClick={()=>onTab(t.id)}
+                className={`inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-sm transition ${active? 'bg-gradient-to-r from-emerald-500 to-cyan-500 text-white shadow':'text-slate-600 hover:text-emerald-600'}`}>
+                <Icon size={16}/>{t.label}
+              </button>
+            );
+          })}
+        </nav>
+        <div className="flex items-center gap-2">
+          <button onClick={onRefresh} className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-600 shadow-sm hover:border-emerald-300 hover:text-emerald-700">Refresh</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**************************** Explore ****************************/
+function ExplorePage({trips, amenityCats, onCreateOrder}){
+  const [search,setSearch]=useState({ from:"", to:"", date: new Date().toISOString().slice(0,10), pax:1, fromPt:null, toPt:null });
+  const [time,setTime]=useState(new Set());
+  const [trust,setTrust]=useState(false);
+  const [amen,setAmen]=useState(new Set());
+  const [sort,setSort]=useState('earliest');
+  const [mapPick,setMapPick]=useState(null);
+  const [orderOpen,setOrderOpen]=useState(false);
+
+  const filtered = useMemo(()=>{
+    let list=[...trips];
+    if (trust) list=list.filter(t=> (t.driver?.rating||t.company?.rating||0) >= 4.5);
+    if (amen.size) list=list.filter(t=>{
+      const ids=(t.amenities||[]).map(a=>a.id); return Array.from(amen).every(id=>ids.includes(id));
+    });
+    if (time.size){
+      list=list.filter(t=>{
+        const h=new Date(t.departure_at).getHours();
+        return (time.has('m1')&&h<6) || (time.has('m2')&&(h>=6&&h<12)) || (time.has('m3')&&(h>=12&&h<18)) || (time.has('m4')&&h>=18);
+      });
+    }
+    switch (sort){
+      case 'cheapest': list.sort((a,b)=>(a.price_amd||1e9)-(b.price_amd||1e9)); break;
+      case 'rating': list.sort((a,b)=>((b.driver?.rating||b.company?.rating||0) - (a.driver?.rating||a.company?.rating||0))); break;
+      case 'shortest': list.sort((a,b)=>(a.eta_sec||1e9)-(b.eta_sec||1e9)); break;
+      default: list.sort((a,b)=> new Date(a.departure_at)-new Date(b.departure_at));
+    }
+    return list;
+  },[trips,trust,amen,sort,time]);
+
+  const applied = (search.from?1:0)+(search.to?1:0)+(search.pax>1?1:0)+(time.size?1:0)+(trust?1:0)+(amen.size?1:0);
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6 py-6">
+      {/* Sidebar */}
+      <aside className="rounded-3xl border border-slate-200 bg-white p-5 shadow-xl">
+        <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900"><Filter size={16} className="text-emerald-600"/>Ֆիլտրեր</div>
+        <div className="space-y-3">
+          <div className="text-sm font-medium">Դասակարգել</div>
+          {[
+            {id:'earliest',label:'Ամենավաղ մեկնարկ'},
+            {id:'cheapest',label:'Ամենաէժան'},
+            {id:'rating',label:'Վարկանիշ'},
+            {id:'shortest',label:'Ամենակարճ'},
+          ].map(o=> (
+            <label key={o.id} className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+              <input type="radio" name="sort" checked={sort===o.id} onChange={()=>setSort(o.id)} className="h-4 w-4 text-emerald-600"/>
+              {o.label}
+            </label>
+          ))}
+        </div>
+        <div className="my-5 h-px bg-slate-200"/>
+        <div className="space-y-2">
+          <div className="text-sm font-medium">Ժամ</div>
+          {[
+            {id:'m1',label:'Մինչև 06:00'},
+            {id:'m2',label:'06:00–12:00'},
+            {id:'m3',label:'12:00–18:00'},
+            {id:'m4',label:'18:00-ից հետո'},
+          ].map(b=> (
+            <label key={b.id} className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+              <input type="checkbox" checked={time.has(b.id)} onChange={()=>{const s=new Set(time); s.has(b.id)?s.delete(b.id):s.add(b.id); setTime(s);}} className="h-4 w-4 text-emerald-600"/>
+              {b.label}
+            </label>
+          ))}
+        </div>
+        <div className="my-5 h-px bg-slate-200"/>
+        <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+          <input type="checkbox" checked={trust} onChange={e=>setTrust(e.target.checked)} className="h-4 w-4 text-emerald-600"/>
+          <ShieldCheck size={16} className="text-emerald-600"/> Վարորդի վարկանիշ ≥ 4.5
+        </label>
+        <div className="my-5 h-px bg-slate-200"/>
+        <div className="space-y-2">
+          <div className="text-sm font-medium">Հարմարություններ</div>
+          {amenityCats.map(g=> (
+            <div key={g.id} className="rounded-xl border border-slate-200 p-3 mt-1">
+              <div className="text-xs font-semibold text-slate-500 uppercase">{g.name}</div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {g.amenities.map(a=> (
+                  <button key={a.id} onClick={()=>{const s=new Set(amen); s.has(a.id)?s.delete(a.id):s.add(a.id); setAmen(s);}}
+                    className={`rounded-full border px-3 py-1 text-xs ${amen.has(a.id)?'border-emerald-400 bg-emerald-50 text-emerald-700':'border-slate-200 text-slate-500 hover:border-emerald-200'}`}>{a.name}</button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </aside>
+
+      {/* Results */}
+      <section className="min-h-[520px] rounded-3xl bg-white p-5 shadow-xl">
+        <HeroSearch search={search} setSearch={setSearch} onPick={(side)=> setMapPick({side, initial: side==='from'? search.fromPt : search.toPt})} />
+        <div className="mt-4 mb-5 flex items-center justify-between">
+          <div>
+            <div className="text-lg font-semibold">Ուղևորություններ՝ {filtered.length}</div>
+            <div className="text-sm text-slate-500">{applied?`Ակտիվ ֆիլտրեր՝ ${applied}`:"Օգտագործեք ֆիլտրերը՝ գտնելու լավագույն ուղևորությունը"}</div>
+          </div>
+          <button onClick={()=>{ setTime(new Set()); setTrust(false); setAmen(new Set()); setSort('earliest'); setSearch(s=>({...s, pax:1})); }} className="text-sm font-medium text-emerald-600 hover:text-emerald-500">Մաքրել</button>
+        </div>
+
+        {filtered.length===0? (
+          <EmptyState onCreate={()=> setOrderOpen(true)} />
+        ):(
+          <div className="grid gap-4">
+            {filtered.map(t=> <TripCard key={t.id} trip={t} />)}
+          </div>
+        )}
+      </section>
+
+      {/* Portals */}
+      <AnimatePresence>
+        {mapPick && (
+          <MapPicker side={mapPick.side} initial={mapPick.initial} onClose={()=>setMapPick(null)} onSelect={(side,pt)=>{
+            setSearch(s=> side==='from'? {...s, from:`${pt.addr||'Կետ'}`, fromPt:pt } : {...s, to:`${pt.addr||'Կետ'}`, toPt:pt });
+            setMapPick(null);
+          }}/>
+        )}
+        {orderOpen && (
+          <OrderModal
+            draft={buildOrderDraft(search)}
+            onClose={()=>setOrderOpen(false)}
+            onPick={(side)=> setMapPick({side, initial: side==='from'? search.fromPt : search.toPt})}
+            onSubmit={async (d)=>{ await onCreateOrder(d); setOrderOpen(false); }}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function HeroSearch({search,setSearch,onPick}){
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white/80 p-4 shadow">
+      <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr_auto_auto] gap-3 items-end">
+        <FieldWithIcon icon={MapPin}>
+          <input className="w-full bg-transparent outline-none" placeholder="Մեկնարկ" value={search.from}
+            onChange={(e)=> setSearch(s=>({...s, from:e.target.value}))}/>
+        </FieldWithIcon>
+        <button className="hidden md:inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 text-slate-600 hover:text-emerald-600" onClick={()=> setSearch(s=>({ ...s, from: s.to, to: s.from, fromPt: s.toPt, toPt: s.fromPt }))}><ArrowLeftRight size={16}/></button>
+        <FieldWithIcon icon={MapPin}>
+          <input className="w-full bg-transparent outline-none" placeholder="Վերջակետ" value={search.to}
+            onChange={(e)=> setSearch(s=>({...s, to:e.target.value}))}/>
+        </FieldWithIcon>
+        <FieldWithIcon icon={Calendar}>
+          <input type="date" className="bg-transparent outline-none" value={search.date}
+            onChange={(e)=> setSearch(s=>({...s, date:e.target.value}))}/>
+        </FieldWithIcon>
+        <FieldWithIcon icon={Users}>
+          <div className="flex items-center gap-2">
+            <button className="h-6 w-6 rounded-full border" onClick={()=> setSearch(s=>({...s, pax: Math.max(1,(s.pax||1)-1)}))}>−</button>
+            <span className="w-8 text-center font-semibold">{search.pax}</span>
+            <button className="h-6 w-6 rounded-full border" onClick={()=> setSearch(s=>({...s, pax: Math.min(6,(s.pax||1)+1)}))}>+</button>
+          </div>
+        </FieldWithIcon>
+      </div>
+      <div className="mt-3 flex gap-2">
+        <button onClick={()=> onPick('from')} className="rounded-full border px-3 py-1.5 text-sm text-slate-600 hover:border-emerald-300 hover:text-emerald-700"><Map size={14} className="inline mr-1"/>Քարտեզից 'From'</button>
+        <button onClick={()=> onPick('to')} className="rounded-full border px-3 py-1.5 text-sm text-slate-600 hover:border-emerald-300 hover:text-emerald-700"><Map size={14} className="inline mr-1"/>Քարտեզից 'To'</button>
+        <button className="ml-auto inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 px-4 py-2 text-sm font-semibold text-white shadow"><Search size={16}/>Որոնել</button>
+      </div>
+    </div>
+  );
+}
+
+function FieldWithIcon({icon:Icon,children}){
+  return (
+    <div className="flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 shadow-sm">
+      <Icon size={16} className="text-emerald-600"/>
+      <div className="flex-1 text-sm">{children}</div>
+    </div>
+  );
+}
+
+function TripCard({trip}){
+  const dep = new Date(trip.departure_at);
+  const arr = new Date(dep.getTime()+ (trip.eta_sec||0)*1000);
+  const free = Math.max(0,(trip.seats_total||0)-(trip.seats_taken||0));
+  const operator = trip.company?.name || trip.driver?.name || 'Վարորդ';
+  const rating = trip.company?.rating || trip.driver?.rating;
+  const addon = trip.match?.addon||{}; const add= (addon.total_amd?? (addon.from_amd||0)+(addon.to_amd||0))||0;
+
+  return (
+    <motion.article layout initial={{opacity:0, y:6}} animate={{opacity:1,y:0}} className="group rounded-3xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-lg">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div className="flex-1 space-y-1.5">
+          <div className="text-slate-600 text-sm flex items-center gap-2">
+            <Route size={16} className="text-emerald-600"/>
+            <span><b className="text-slate-900">{String(dep).slice(16,21)}</b> <ChevronRight className="inline mx-1" size={14}/> <b className="text-slate-900">{String(arr).slice(16,21)}</b> <span className="ml-2 text-xs text-slate-500">{Math.round((trip.eta_sec||0)/60)} րոպե</span></span>
+          </div>
+          <div className="text-lg font-semibold">{trip.from_addr} → {trip.to_addr}</div>
+          <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
+            <span className="inline-flex items-center gap-1"><Car size={16} className="text-emerald-600"/>{typeLabel(trip.type_key)}</span>
+            <span className="inline-flex items-center gap-1"><Users size={16} className="text-emerald-600"/>Ազատ՝ {free} / {trip.seats_total}</span>
+            {!!rating && <span className="inline-flex items-center gap-1 text-emerald-600"><Star size={16}/> {Number(rating).toFixed(1)}</span>}
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs text-slate-600">
+            {trip.match?.start_zone && <Badge>Մեկնարկ՝ {zoneLabel(trip.match.start_zone)} {addon.from_amd?`(+${fmtAMD(addon.from_amd).replace(' AMD','')})`:''}</Badge>}
+            {trip.match?.end_zone && <Badge>Վերջակետ՝ {zoneLabel(trip.match.end_zone)} {addon.to_amd?`(+${fmtAMD(addon.to_amd).replace(' AMD','')})`:''}</Badge>}
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-2xl font-semibold text-emerald-700">{fmtAMD((trip.price_amd||0)+add)}</div>
+          {add>0 && <div className="text-xs text-slate-500">{fmtAMD(trip.price_amd)} բազային + {fmtAMD(add)}</div>}
+          <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-500"><UserRound size={14} className="text-slate-400"/>{operator}</div>
+        </div>
+      </div>
+    </motion.article>
+  );
+}
+
+function Badge({children}){ return <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 font-medium text-emerald-700">{children}</span>; }
+
+function EmptyState({onCreate}){
+  return (
+    <div className="grid place-items-center py-14 text-center rounded-3xl border border-dashed border-emerald-300 bg-emerald-50/50">
+      <Car size={44} className="text-emerald-500"/>
+      <div className="mt-3 text-xl font-semibold">Ընտրված պայմաններով ուղևորություններ չկան</div>
+      <div className="text-sm text-slate-600 max-w-sm">Ստեղծեք order/հիշեցում․ կտեղեկացնենք, երբ հայտնվեն նոր առաջարկներ</div>
+      <button onClick={onCreate} className="mt-4 rounded-full border border-emerald-500 px-5 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-500/10">Ստեղծել order</button>
+    </div>
+  );
+}
+
+function buildOrderDraft(search){
+  const d = search.date || new Date().toISOString().slice(0,10);
+  const from= search.fromPt; const to= search.toPt;
+  return {
+    from_addr: search.from, to_addr: search.to,
+    from_lat: from?.lat?? null, from_lng: from?.lng?? null,
+    to_lat: to?.lat?? null, to_lng: to?.lng?? null,
+    when_from: new Date(d+"T00:00:00").toISOString(),
+    when_to: new Date(d+"T23:59:59").toISOString(),
+    seats: search.pax||1,
+    payment: null,
+    desired_price_amd: null,
+  };
+}
+
+function OrderModal({draft,onClose,onPick,onSubmit}){
+  const [d,setD]=useState(draft);
+  const update=(p)=> setD(prev=>({...prev,...p}));
+  const ok = d && (d.from_addr||d.from_lat) && (d.to_addr||d.to_lat) && d.seats>0;
+  return (
+    <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
+      className="fixed inset-0 z-[9999] grid place-items-center bg-black/40 p-4" onClick={onClose}>
+      <motion.div initial={{y:24,opacity:0}} animate={{y:0,opacity:1}} exit={{y:12,opacity:0}} transition={{type:'spring',stiffness:420,damping:32}}
+        className="w-full max-w-2xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl" onClick={(e)=>e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3"><div className="text-sm font-semibold">Ստեղծել Order</div><button onClick={onClose} className="rounded-full border p-1.5"><X size={16}/></button></div>
+        <div className="grid gap-3 p-4">
+          <Labeled label="Մեկնարկ">
+            <div className="flex gap-2">
+              <input value={d.from_addr||''} onChange={e=>update({from_addr:e.target.value})} placeholder="Հասցե" className="flex-1 rounded-xl border px-3 py-2 text-sm"/>
+              <button onClick={()=>onPick('from')} className="rounded-xl border px-3 text-sm">Քարտեզ</button>
+            </div>
+            {(d.from_lat||d.from_lng) && <div className="text-xs text-slate-500">({d.from_lat?.toFixed?.(5)||'—'}, {d.from_lng?.toFixed?.(5)||'—'})</div>}
+          </Labeled>
+          <Labeled label="Վերջակետ">
+            <div className="flex gap-2">
+              <input value={d.to_addr||''} onChange={e=>update({to_addr:e.target.value})} placeholder="Հասցե" className="flex-1 rounded-xl border px-3 py-2 text-sm"/>
+              <button onClick={()=>onPick('to')} className="rounded-xl border px-3 text-sm">Քարտեզ</button>
+            </div>
+            {(d.to_lat||d.to_lng) && <div className="text-xs text-slate-500">({d.to_lat?.toFixed?.(5)||'—'}, {d.to_lng?.toFixed?.(5)||'—'})</div>}
+          </Labeled>
+          <div className="grid grid-cols-3 gap-2">
+            <Labeled label="From">
+              <input type="datetime-local" value={d.when_from? new Date(d.when_from).toISOString().slice(0,16):''}
+                onChange={e=>update({when_from: e.target.value? new Date(e.target.value).toISOString(): null})}
+                className="rounded-xl border px-3 py-2 text-sm"/>
+            </Labeled>
+            <Labeled label="To">
+              <input type="datetime-local" value={d.when_to? new Date(d.when_to).toISOString().slice(0,16):''}
+                onChange={e=>update({when_to: e.target.value? new Date(e.target.value).toISOString(): null})}
+                className="rounded-xl border px-3 py-2 text-sm"/>
+            </Labeled>
+            <Labeled label="Seats">
+              <input type="number" min={1} max={6} value={d.seats||1} onChange={e=>update({seats: Math.min(6,Math.max(1,Number(e.target.value||1)))})} className="rounded-xl border px-3 py-2 text-sm"/>
+            </Labeled>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <Labeled label="Payment">
+              <select value={d.payment||''} onChange={e=>update({payment: e.target.value||null})} className="rounded-xl border px-3 py-2 text-sm">
+                <option value="">—</option>
+                <option value="cash">cash</option>
+                <option value="card">card</option>
+              </select>
+            </Labeled>
+            <Labeled label="Желаемая цена, AMD">
+              <input type="number" min={0} value={d.desired_price_amd??''} onChange={e=>update({desired_price_amd: e.target.value===''?null:Number(e.target.value)})} className="rounded-xl border px-3 py-2 text-sm"/>
+            </Labeled>
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-4 py-3">
+          <button onClick={onClose} className="rounded-full border px-4 py-2 text-sm text-slate-600">Չեղարկել</button>
+          <button disabled={!ok} onClick={()=> ok && onSubmit(d)} className="rounded-full bg-gradient-to-r from-emerald-500 to-cyan-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">Ստեղծել</button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function Labeled({label,children}){
+  return (
+    <label className="grid gap-1 text-sm">
+      <span className="text-xs font-semibold text-slate-600">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+/**************************** Map Picker ****************************/
+function MapPicker({side,initial,onSelect,onClose}){
+  const ref=useRef(null); const marker=useRef(null); const mapRef=useRef(null);
+  const [pos,setPos]=useState(initial||{lat:40.18,lng:44.51});
+  const [addr,setAddr]=useState(initial?.addr||"");
+
+  useEffect(()=>{ let alive=true; (async()=>{
+    const gl=await ensureMapLibre(); if(!alive||!gl) return;
+    const map=new gl.Map({ container: ref.current, style:{version:8,sources:{osm:{type:'raster',tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],tileSize:256}},layers:[{id:'osm',type:'raster',source:'osm'}]}, center:[pos.lng,pos.lat], zoom: initial?12:7 });
+    map.addControl(new gl.NavigationControl({showCompass:false}), 'top-right');
+    marker.current=new gl.Marker({color:'#10b981'}).setLngLat([pos.lng,pos.lat]).addTo(map);
+    map.on('click', async e=>{ const {lng,lat}=e.lngLat; setPos({lat,lng}); marker.current.setLngLat([lng,lat]); setAddr(`Lat ${lat.toFixed(4)}, Lng ${lng.toFixed(4)}`); });
+    mapRef.current=map;
+  })(); return ()=>{ alive=false; try{mapRef.current?.remove();}catch{}}
+  },[]);
+
+  return (
+    <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 z-[9998] grid place-items-center bg-black/40 p-4" onClick={onClose}>
+      <motion.div initial={{y:24,opacity:0}} animate={{y:0,opacity:1}} exit={{y:12,opacity:0}} transition={{type:'spring',stiffness:420,damping:32}}
+        className="w-full max-w-3xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl" onClick={e=>e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+          <div className="text-sm font-semibold">Քարտեզով ընտրել · {side==='from'? 'Մեկնարկ':'Վերջակետ'}</div>
+          <button onClick={onClose} className="rounded-full border p-1.5"><X size={16}/></button>
+        </div>
+        <div ref={ref} className="h-[60vh]"/>
+        <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-sm">
+          <div className="flex-1 truncate text-slate-600">{addr||'Քարտեզի վրա սեղմեք՝ կետ ընտրելու համար'}</div>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="rounded-full border px-4 py-2 text-sm">Չեղարկել</button>
+            <button onClick={()=> onSelect(side,{...pos,addr})} className="rounded-full bg-gradient-to-r from-emerald-500 to-cyan-500 px-4 py-2 text-sm font-semibold text-white">Հստակեցնել</button>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+/**************************** Orders ****************************/
+function OrdersPage({orders,onCreateOffer}){
+  const [sel,setSel]=useState(null);
+  const [price,setPrice]=useState(0);
+  const [seats,setSeats]=useState(1);
+  return (
+    <div className="grid gap-6 py-6">
+      <div className="text-xl font-semibold">Հաճախորդների Orders</div>
+      <div className="grid gap-3">
+        {orders.map(o=> (
+          <motion.div key={o.id} initial={{opacity:0,y:6}} animate={{opacity:1,y:0}} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="font-semibold">{o.from_addr||'Կետ'} → {o.to_addr||'Կետ'}</div>
+                <div className="text-xs text-slate-500">Պատուհան: {o.when_from?.slice(0,16).replace('T',' ')} → {o.when_to?.slice(0,16).replace('T',' ')}</div>
+                <div className="text-xs text-slate-500">Seats: {o.seats} · Payment: {o.payment||'—'} {o.desired_price_amd?`· Ցանկալի՝ ${fmtAMD(o.desired_price_amd)}`:''}</div>
+              </div>
+              <button onClick={()=> setSel(o)} className="rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 px-3 py-1.5 text-sm font-semibold text-white">Առաջարկել (Offer)</button>
+            </div>
+          </motion.div>
+        ))}
+      </div>
+
+      <AnimatePresence>
+        {sel && (
+          <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 z-[9999] grid place-items-center bg-black/40 p-4" onClick={()=>setSel(null)}>
+            <motion.div initial={{y:24,opacity:0}} animate={{y:0,opacity:1}} exit={{y:12,opacity:0}} transition={{type:'spring',stiffness:420,damping:32}}
+              className="w-full max-w-md overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl" onClick={e=>e.stopPropagation()}>
+              <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3"><div className="text-sm font-semibold">Create Offer</div><button onClick={()=>setSel(null)} className="rounded-full border p-1.5"><X size={16}/></button></div>
+              <div className="grid gap-3 p-4">
+                <Labeled label="Price AMD"><input type="number" min={0} value={price} onChange={e=>setPrice(+e.target.value||0)} className="rounded-xl border px-3 py-2 text-sm"/></Labeled>
+                <Labeled label="Seats"><input type="number" min={1} max={6} value={seats} onChange={e=>setSeats(Math.min(6,Math.max(1,+e.target.value||1)))} className="rounded-xl border px-3 py-2 text-sm"/></Labeled>
+              </div>
+              <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-4 py-3">
+                <button onClick={()=>setSel(null)} className="rounded-full border px-4 py-2 text-sm">Չեղարկել</button>
+                <button onClick={async()=>{ await onCreateOffer({ order_id: sel.id, trip_id: 1, driver_user_id: 1, price_amd: price, seats }); setSel(null); }} className="rounded-full bg-gradient-to-r from-emerald-500 to-cyan-500 px-4 py-2 text-sm font-semibold text-white">Ուղարկել</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/**************************** Offers ****************************/
+function OffersPage({offers}){
+  if (!offers.length) return <div className="py-10 text-center text-slate-600">Առայժմ Offer-ներ չկան</div>;
+  return (
+    <div className="py-6 grid gap-3">
+      <div className="text-xl font-semibold">Կարգավիճակներ</div>
+      {offers.map(o=> (
+        <motion.div key={o.id} initial={{opacity:0,y:6}} animate={{opacity:1,y:0}} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="text-sm">Order #{o.order_id} → Trip #{o.trip_id} · Seats {o.seats} · {fmtAMD(o.price_amd)}</div>
+            <span className={`rounded-full px-2 py-0.5 text-xs ${o.status==='pending'? 'bg-amber-50 text-amber-700 border border-amber-200':'bg-green-50 text-green-700 border border-green-200'}`}>{o.status}</span>
+          </div>
+        </motion.div>
+      ))}
+    </div>
+  );
+}
+
+/**************************** Chat Preview ****************************/
+function ChatPreview(){
+  const [msgs,setMsgs]=useState([
+    {id:1, who:'driver', text:'Բարև, մեկնում եմ 15:00-ին, կհասցնեմ 17:30-ին'},
+    {id:2, who:'client', text:'Օքեյ, տեղ ունե՞ք 2 հոգու'},
+  ]);
+  const [text,setText]=useState('');
+  const send=()=>{ if(!text.trim()) return; setMsgs(m=>[...m,{id: m.at(-1)?.id+1||1, who:'client', text }]); setText(''); };
+  return (
+    <div className="grid grid-rows-[auto_1fr_auto] h-[70vh] rounded-3xl border border-slate-200 bg-white shadow-xl">
+      <div className="flex items-center gap-2 border-b px-4 py-3"><MessageSquare size={16} className="text-emerald-600"/><div className="font-semibold">Չատ · Վարորդ &raquo; Հաճախորդ</div></div>
+      <div className="overflow-y-auto p-4 space-y-2">
+        {msgs.map(m=> (
+          <div key={m.id} className={`max-w-[70%] rounded-2xl px-3 py-2 text-sm ${m.who==='client'?'ml-auto bg-emerald-50 text-emerald-900':'bg-slate-100 text-slate-900'}`}>{m.text}</div>
+        ))}
+      </div>
+      <div className="flex items-center gap-2 border-t px-3 py-2">
+        <input value={text} onChange={e=>setText(e.target.value)} placeholder="Գրեք հաղորդագրություն" className="flex-1 rounded-xl border px-3 py-2 text-sm"/>
+        <button onClick={send} className="rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 px-4 py-2 text-sm font-semibold text-white">Ուղարկել</button>
+      </div>
+    </div>
+  );
+}
+
+/**************************** Companies ****************************/
+function CompaniesGrid(){
+  const {companies}=DB.getState();
+  return (
+    <div className="py-6">
+      <div className="text-xl font-semibold mb-4">Գործընկեր կազմակերպություններ</div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {companies.map(c=> (
+          <motion.div key={c.id} initial={{opacity:0,y:6}} animate={{opacity:1,y:0}} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-center gap-3">
+              <img src={c.logo} alt="logo" className="h-10 w-10 rounded-xl border"/>
+              <div>
+                <div className="font-semibold">{c.name}</div>
+                <div className="text-xs text-slate-500">Անձնակազմ՝ {c.members_count} · <Star size={12} className="inline text-emerald-600"/> {c.rating}</div>
+              </div>
+            </div>
+          </motion.div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**************************** Footer ****************************/
+function Footer(){
+  return (
+    <div className="mt-10 border-t border-white/40 bg-white/50 backdrop-blur">
+      <div className="mx-auto max-w-7xl px-4 py-6 text-xs text-slate-500">
+        Դեմո. UI կառուցված է Tailwind + Framer Motion + MapLibre. Տվյալները mock.
+      </div>
+    </div>
+  );
+}

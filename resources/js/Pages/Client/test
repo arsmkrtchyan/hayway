@@ -1,0 +1,1466 @@
+//
+// import React, { useEffect, useState, useRef } from "react";
+// import { Link, router, usePage } from "@inertiajs/react";
+// import dayjs from "dayjs";
+// import { createPortal } from "react-dom";
+// import { motion, AnimatePresence } from "framer-motion";
+// import {
+//     Search, MapPin, Calendar, Wallet, Users,
+//     CreditCard, HandCoins, SlidersHorizontal, X, Car, ListChecks
+// } from "lucide-react";
+//
+// /* ========= helpers: nominatim + osrm + maplibre loader ========= */
+// const NOMI_LANG = "hy,ru,en";
+//
+// async function reverseGeocodeNominatim(lng, lat) {
+//     try {
+//         const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&accept-language=${encodeURIComponent(
+//             NOMI_LANG
+//         )}&lat=${lat}&lon=${lng}&addressdetails=1`;
+//         const r = await fetch(url, { headers: { Accept: "application/json" } });
+//         if (!r.ok) return "";
+//         const d = await r.json();
+//         const a = d?.address || {};
+//         const parts = [a.road, a.suburb, a.city || a.town || a.village, a.country].filter(Boolean);
+//         return parts.join(", ") || d?.display_name || "";
+//     } catch { return ""; }
+// }
+//
+// async function osrmRoute(profile, A, B) {
+//     const url = `https://router.project-osrm.org/route/v1/${profile}/${A.lng},${A.lat};${B.lng},${B.lat}?overview=full&geometries=geojson&alternatives=false`;
+//     const r = await fetch(url);
+//     if (!r.ok) throw new Error("OSRM " + r.status);
+//     const d = await r.json();
+//     return d?.routes?.[0] || null;
+// }
+//
+// function ensureMapLibre() {
+//     return new Promise((resolve, reject) => {
+//         if (window.maplibregl) return resolve(window.maplibregl);
+//         const cssId = "maplibre-css";
+//         if (!document.getElementById(cssId)) {
+//             const l = document.createElement("link");
+//             l.id = cssId; l.rel = "stylesheet";
+//             l.href = "https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css";
+//             document.head.appendChild(l);
+//         }
+//         const s = document.createElement("script");
+//         s.src = "https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js";
+//         s.async = true;
+//         s.onload = () => resolve(window.maplibregl);
+//         s.onerror = () => reject(new Error("Failed to load MapLibre"));
+//         document.body.appendChild(s);
+//     });
+// }
+//
+// /* ========= small utils ========= */
+// function num(v, fb = null) {
+//     const n = typeof v === "string" ? parseFloat(v) : (typeof v === "number" ? v : NaN);
+//     return Number.isFinite(n) ? n : fb;
+// }
+// function formatAMD(n){ try{ return new Intl.NumberFormat("hy-AM").format(n||0);}catch{return n;} }
+// function distributeDots(n, taken, pending, free){
+//     const arr=[]; let r=Math.min(n,taken); for(let i=0;i<r;i++)arr.push("red");
+//     let a=Math.min(n-arr.length,pending); for(let i=0;i<a;i++)arr.push("amber");
+//     let g=Math.min(n-arr.length,free); for(let i=0;i<g;i++)arr.push("green");
+//     while(arr.length<n)arr.push("green"); return arr.slice(0,n);
+// }
+//
+// /* ================= PAGE ================= */
+// export default function Explore() {
+//     const { trips, filters, auth, amenityFilters } = usePage().props;
+//     const [bookTrip, setBookTrip] = useState(null);
+//
+//     return (
+//         <div className="-mx-4">
+//             <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-zinc-950 via-amber-900/20 to-amber-500/10">
+//                 <motion.div
+//                     className="pointer-events-none absolute -top-24 -left-24 h-72 w-72 rounded-full bg-amber-500/20 blur-3xl"
+//                     animate={{ opacity: [0.5, 0.9, 0.5] }}
+//                     transition={{ repeat: Infinity, duration: 8 }}
+//                 />
+//                 <motion.div
+//                     className="pointer-events-none absolute -bottom-24 -right-24 h-80 w-80 rounded-full bg-yellow-300/10 blur-3xl"
+//                     animate={{ opacity: [0.3, 0.7, 0.3] }}
+//                     transition={{ repeat: Infinity, duration: 10 }}
+//                 />
+//
+//                 <div className="relative z-10 mx-auto max-w-6xl px-4 pt-8 pb-10">
+//                     <div className="mb-6 flex items-center justify-between">
+//                         <div className="flex items-center gap-3">
+//                             <div className="relative">
+//                                 <div className="absolute -inset-1 rounded-xl bg-amber-400/30 blur-lg" />
+//                                 <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-yellow-400 text-zinc-900 shadow-lg">
+//                                     <Car className="h-6 w-6" />
+//                                 </div>
+//                             </div>
+//                             <div>
+//                                 <h1 className="text-xl font-bold tracking-tight text-white">Poputi Taxi</h1>
+//                                 <div className="text-xs uppercase tracking-wider text-amber-200/80">Գտնել ուղևորություն</div>
+//                             </div>
+//                         </div>
+//                         <div className="hidden text-sm text-zinc-300 md:block">Ճանապարհորդեք միասին</div>
+//                     </div>
+//
+//                     <SearchForm filters={filters} amenityFilters={amenityFilters} />
+//
+//                     <ResultsList
+//                         trips={trips}
+//                         canBook={!!auth?.user}
+//                         onBook={(t)=> setBookTrip(t)}
+//                     />
+//
+//                     <AnimatePresence>
+//                         {bookTrip && <BookModal t={bookTrip} onClose={()=> setBookTrip(null)} />}
+//                     </AnimatePresence>
+//                 </div>
+//             </div>
+//         </div>
+//     );
+// }
+//
+// /* ------------ SEARCH ------------ */
+// /* ------------ SEARCH ------------ */
+// function SearchForm({ filters, amenityFilters }) {
+//     const [f, setF] = useState({
+//         from: filters?.from || "",
+//         to: filters?.to || "",
+//         date: filters?.date || "",
+//         max_price: filters?.max_price ?? "",
+//         seats: filters?.seats ?? "",
+//         pay: filters?.pay ?? "",
+//     });
+//
+//     // selected amenity ids (Set)
+//     const initialAmenityIds = (filters?.amenities||"")
+//         .split(",")
+//         .map(x=>parseInt(x,10))
+//         .filter(Number.isFinite);
+//     const [amenityIds, setAmenityIds] = useState(new Set(initialAmenityIds));
+//     const [showAmenities, setShowAmenities] = useState(false);
+//
+//     useEffect(()=>{
+//         setF({
+//             from: filters?.from || "",
+//             to: filters?.to || "",
+//             date: filters?.date || "",
+//             max_price: filters?.max_price ?? "",
+//             seats: filters?.seats ?? "",
+//             pay: filters?.pay ?? "",
+//         });
+//         setAmenityIds(new Set(
+//             (filters?.amenities||"").split(",").map(x=>parseInt(x,10)).filter(Number.isFinite)
+//         ));
+//     }, [filters?.from, filters?.to, filters?.date, filters?.max_price, filters?.seats, filters?.pay, filters?.amenities]);
+//
+//     function toggleAmenity(id){
+//         setAmenityIds(prev=>{
+//             const s = new Set(prev);
+//             if (s.has(id)) s.delete(id); else s.add(id);
+//             return s;
+//         });
+//     }
+//
+//     function submit(e){
+//         e.preventDefault();
+//         const amenities = Array.from(amenityIds.values()).join(",");
+//         router.get("/trips", { ...f, amenities }, { preserveScroll:true, preserveState:true });
+//     }
+//
+//     const selectedCount = amenityIds.size;
+//
+//     return (
+//         <motion.form
+//             onSubmit={submit}
+//             initial={{ opacity: 0, y: 14 }}
+//             animate={{ opacity: 1, y: 0 }}
+//             className="mb-6 grid gap-3 rounded-3xl border border-white/5 bg-zinc-900/70 p-4 backdrop-blur-xl md:grid-cols-12"
+//         >
+//             <Field icon={<MapPin className="h-4 w-4" />} placeholder="Որտեղից" value={f.from} onChange={(v)=>setF(s=>({...s,from:v}))} className="md:col-span-3"/>
+//             <Field icon={<MapPin className="h-4 w-4" />} placeholder="Ուր" value={f.to} onChange={(v)=>setF(s=>({...s,to:v}))} className="md:col-span-3"/>
+//             <Field type="date" icon={<Calendar className="h-4 w-4" />} placeholder="Ամսաթիվ" value={f.date} onChange={(v)=>setF(s=>({...s,date:v}))} className="md:col-span-2"/>
+//
+//             <div className="md:col-span-2">
+//                 <div className="mb-1 flex items-center justify-between text-xs text-zinc-300">
+//                     <span className="inline-flex items-center gap-1"><Wallet className="h-3.5 w-3.5" /> Գինը մինչև</span>
+//                     <span className="font-medium text-amber-200">{formatAMD(f.max_price || 0)} AMD</span>
+//                 </div>
+//                 <input
+//                     type="range" min={0} max={20000} step={500}
+//                     value={Number.isFinite(+f.max_price) ? +f.max_price : 0}
+//                     onChange={(e)=>setF(s=>({...s,max_price:Number(e.target.value)}))}
+//                     className="w-full accent-amber-400"
+//                 />
+//             </div>
+//
+//             <div className="md:col-span-2">
+//                 <div className="mb-1 flex items-center justify-between text-xs text-zinc-300"><Users className="mr-1 h-3.5 w-3.5"/> Տեղեր</div>
+//                 <div className="flex items-center gap-2">
+//                     <button type="button" onClick={()=>setF(s=>({...s,seats: Math.max(1, (Number(s.seats)||1)-1)}))} className="h-9 w-9 rounded-xl border border-white/10 text-white transition hover:bg-white/5">-</button>
+//                     <div className="min-w-12 rounded-xl border border-white/10 bg-zinc-900/60 px-3 py-2 text-center text-white">{f.seats||1}</div>
+//                     <button type="button" onClick={()=>setF(s=>({...s,seats: Math.min(4, (Number(s.seats)||1)+1)}))} className="h-9 w-9 rounded-xl border border-white/10 text-white transition hover:bg-white/5">+</button>
+//                 </div>
+//             </div>
+//
+//             <div className="md:col-span-2">
+//                 <div className="mb-1 flex items-center justify-between text-xs text-zinc-300"><SlidersHorizontal className="mr-1 h-3.5 w-3.5"/> Վճարում</div>
+//                 <div className="flex gap-2">
+//                     <Chip active={(f.pay||"") === ""} onClick={()=>setF(s=>({...s,pay:""}))}>Բոլորը</Chip>
+//                     <Chip active={f.pay==="cash"} onClick={()=>setF(s=>({...s,pay:"cash"}))}><HandCoins className="h-3.5 w-3.5"/> Կանխիկ</Chip>
+//                     <Chip active={f.pay==="card"} onClick={()=>setF(s=>({...s,pay:"card"}))}><CreditCard className="h-3.5 w-3.5"/> Քարտ</Chip>
+//                 </div>
+//             </div>
+//
+//             {/* Кнопки действий */}
+//             <div className="md:col-span-12 flex items-center justify-end gap-2 pt-1">
+//                 <Link
+//                     href="/trips"
+//                     preserveScroll
+//                     preserveState
+//                     className="rounded-2xl border border-white/10 px-4 py-2 text-sm text-zinc-200 hover:bg-white/5"
+//                 >
+//                     Մաքրել
+//                 </Link>
+//                 <button type="submit" className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-amber-500 to-yellow-400 px-4 py-2 font-semibold text-zinc-900 shadow">
+//                     <Search className="h-4 w-4"/> Փնտրել
+//                 </button>
+//             </div>
+//
+//             {/* УДОБСТВА — последняя строка, под ней больше ничего нет */}
+//             <div className="md:col-span-12">
+//                 <div className="mb-1 flex items-center justify-between text-xs text-zinc-300">
+//                     <span className="inline-flex items-center gap-1"><ListChecks className="h-3.5 w-3.5" /> Հարմարություններ</span>
+//                     {selectedCount>0 && <span className="rounded bg-amber-400/20 px-2 py-[2px] text-[11px] text-amber-200">{selectedCount}</span>}
+//                 </div>
+//                 <button
+//                     type="button"
+//                     onClick={()=>setShowAmenities(true)}
+//                     className="w-full rounded-2xl border border-white/10 bg-zinc-900/60 px-3 py-3.5 text-left text-white hover:bg-white/5"
+//                 >
+//                     {selectedCount>0 ? "Ընտրված է՝ " + selectedCount : "Ընտրել"}
+//                 </button>
+//
+//                 <AnimatePresence>
+//                     {showAmenities && (
+//                         <AmenityPicker
+//                             amenitiesByCat={amenityFilters||[]}
+//                             selected={amenityIds}
+//                             onToggle={toggleAmenity}
+//                             onClear={()=>setAmenityIds(new Set())}
+//                             onClose={()=>setShowAmenities(false)}
+//                         />
+//                     )}
+//                 </AnimatePresence>
+//             </div>
+//         </motion.form>
+//     );
+// }
+//
+// /* -------- МОДАЛКА УДОБСТВ (portal) -------- */
+// function AmenityPicker({ amenitiesByCat, selected, onToggle, onClear, onClose }) {
+//     return createPortal(
+//         <motion.div
+//             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+//             className="fixed inset-0 z-[9998] grid place-items-center bg-black/60 p-4"
+//             onClick={onClose}
+//         >
+//             <motion.div
+//                 initial={{ y: 24, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 12, opacity: 0 }}
+//                 transition={{ type: "spring", stiffness: 420, damping: 32 }}
+//                 className="w-full max-w-2xl overflow-hidden rounded-2xl border border-white/10 bg-zinc-950/90 shadow-xl backdrop-blur-xl"
+//                 onClick={(e)=>e.stopPropagation()}
+//             >
+//                 <div className="flex items-center justify-between border-b border-white/5 p-4">
+//                     <div className="text-sm font-semibold text-white">Ընտրել հարմարություններ</div>
+//                     <button onClick={onClose} className="rounded-md p-1 text-zinc-300 hover:bg-white/5"><X className="h-4 w-4"/></button>
+//                 </div>
+//
+//                 <div className="max-h-[70vh] overflow-auto p-4">
+//                     {(amenitiesByCat||[]).map(cat=>(
+//                         <div key={cat.id} className="mb-3 rounded-xl border border-white/10 p-3">
+//                             <div className="mb-2 text-xs font-semibold text-amber-200/90">{cat.name}</div>
+//                             <div className="flex flex-wrap gap-3">
+//                                 {(cat.amenities||[]).map(a=>(
+//                                     <label key={a.id} className="inline-flex items-center gap-2 text-sm text-zinc-200">
+//                                         <input
+//                                             type="checkbox"
+//                                             checked={selected.has(a.id)}
+//                                             onChange={()=>onToggle(a.id)}
+//                                         />
+//                                         {a.name}
+//                                     </label>
+//                                 ))}
+//                             </div>
+//                         </div>
+//                     ))}
+//                 </div>
+//
+//                 <div className="flex justify-end gap-2 border-t border-white/5 p-3">
+//                     <button type="button" onClick={onClear}
+//                             className="rounded-xl border border-white/10 px-3 py-1.5 text-sm text-zinc-200 hover:bg-white/5">Մաքրել</button>
+//                     <button type="button" onClick={onClose}
+//                             className="rounded-xl bg-amber-400 px-3 py-1.5 text-sm font-semibold text-zinc-900">Կատարել</button>
+//                 </div>
+//             </motion.div>
+//         </motion.div>,
+//         document.body
+//     );
+// }
+//
+// /* ------------ RESULTS ------------ */
+// function ResultsList({ trips, canBook, onBook }) {
+//     return (
+//         <section className="pb-10">
+//             {trips?.data?.length === 0 ? (
+//                 <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="overflow-hidden rounded-3xl border border-white/5 bg-zinc-900/70 p-10 text-center text-zinc-300">
+//                     <div className="mx-auto mb-4 h-24 w-24 rounded-full border border-white/10 bg-gradient-to-br from-zinc-800 to-zinc-900" />
+//                     <div className="text-lg font-semibold text-white">Չեն գտնվել ուղևորություններ</div>
+//                     <div className="text-sm text-zinc-300">Փորձեք փոխել որոնման պայմանները</div>
+//                 </motion.div>
+//             ) : (
+//                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+//                     {trips?.data?.map(t => <TripCard key={t.id} t={t} canBook={canBook} onBook={onBook} />)}
+//                 </div>
+//             )}
+//
+//             <Pagination meta={trips?.meta} links={trips?.links}/>
+//         </section>
+//     );
+// }
+//
+// function TripCard({ t, canBook, onBook }) {
+//     const taken   = t.seats_taken || 0;
+//     const pending = t.pending_requests_count || 0;
+//     const totalSeats = Number(t.seats_total) || 0;
+//     const free = Math.max(0, totalSeats - taken);
+//     const dots = distributeDots(totalSeats, taken, pending, free);
+//     const dotSize = totalSeats > 6 ? 'h-2.5 w-2.5' : 'h-3 w-3';
+//
+//     const [fromLabel, setFromLabel] = useState(t.from_addr || "");
+//     const [toLabel, setToLabel] = useState(t.to_addr || "");
+//     useEffect(() => {
+//         (async () => {
+//             if (!fromLabel && Number.isFinite(+t.from_lng) && Number.isFinite(+t.from_lat)) {
+//                 const s = await reverseGeocodeNominatim(+t.from_lng, +t.from_lat);
+//                 if (s) setFromLabel(s);
+//             }
+//             if (!toLabel && Number.isFinite(+t.to_lng) && Number.isFinite(+t.to_lat)) {
+//                 const s = await reverseGeocodeNominatim(+t.to_lng, +t.to_lat);
+//                 if (s) setToLabel(s);
+//             }
+//         })();
+//         // eslint-disable-next-line react-hooks/exhaustive-deps
+//     }, []);
+//
+//     const [showInteractive, setShowInteractive] = useState(false);
+//
+//     return (
+//         <motion.div
+//             layout
+//             initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+//             className="relative overflow-hidden rounded-2xl border border-white/5 bg-zinc-900/60 shadow-2xl backdrop-blur-xl"
+//         >
+//             <div className="flex items-center justify-between p-3 text-zinc-300">
+//                 <div className="text-xs">{t.driver?.name || "Վարորդ"}</div>
+//                 <div className="text-xs">{t.departure_at ? dayjs(t.departure_at).format("MM-DD HH:mm") : "—"}</div>
+//             </div>
+//
+//             <div className="mini-map relative h-36 overflow-hidden">
+//                 <MiniMapLibreRoute
+//                     A={{ lng:num(t.from_lng), lat:num(t.from_lat) }}
+//                     B={{ lng:num(t.to_lng),   lat:num(t.to_lat)   }}
+//                     interactive={false}
+//                 />
+//                 {showInteractive && (
+//                     <div className="absolute inset-0 z-10">
+//                         <MiniMapLibreRoute
+//                             A={{ lng:num(t.from_lng), lat:num(t.from_lat) }}
+//                             B={{ lng:num(t.to_lng),   lat:num(t.to_lat)   }}
+//                             interactive={true}
+//                         />
+//                         <button
+//                             type="button"
+//                             onClick={()=>setShowInteractive(false)}
+//                             className="absolute right-2 top-2 rounded-md bg-black/80 px-2 py-[2px] text-[11px] text-amber-200"
+//                         >
+//                             Կանգնեցնել
+//                         </button>
+//                     </div>
+//                 )}
+//                 <div className="pointer-events-none absolute left-3 top-3 rounded-lg bg-black/70 px-2 py-1 text-xs text-amber-200">
+//                     {t.vehicle?.brand} {t.vehicle?.model} · {t.vehicle?.plate || t.plate}
+//                 </div>
+//                 <button
+//                     type="button"
+//                     className="absolute bottom-2 right-2 rounded-lg bg-black/80 px-2 py-1 text-[11px] text-amber-200 shadow"
+//                     onClick={() => setShowInteractive(v=>!v)}
+//                 >
+//                     {showInteractive ? "Ավարտել" : "Շարժել քարտեզը"}
+//                 </button>
+//             </div>
+//
+//             <div className="space-y-3 p-4">
+//                 <div className="text-white">
+//                     <span className="font-semibold">{fromLabel || t.from_addr || "—"}</span> → <span className="font-semibold">{toLabel || t.to_addr || "—"}</span>
+//                 </div>
+//                 <div className="text-sm text-zinc-200">Գին՝ <b>{formatAMD(t.price_amd)} AMD</b></div>
+//
+//                 {Array.isArray(t.amenities) && t.amenities.length>0 && (
+//                     <div className="flex flex-wrap gap-1.5">
+//                         {t.amenities.slice(0,5).map(a=>(
+//                             <span key={a.id} className="rounded-md border border-white/10 bg-zinc-800/60 px-2 py-[2px] text-[11px] text-amber-200">
+//                 {a.name}
+//               </span>
+//                         ))}
+//                         {t.amenities.length>5 && (
+//                             <span className="rounded-md border border-white/10 bg-zinc-800/60 px-2 py-[2px] text-[11px] text-zinc-300">
+//                 +{t.amenities.length-5}
+//               </span>
+//                         )}
+//                     </div>
+//                 )}
+//
+//                 <div>
+//                     <div className="flex items-center justify-between text-xs text-zinc-300">
+//                         <span>Տեղեր՝ {taken}/{t.seats_total}</span>
+//                         <span>Սպասում են՝ {pending}</span>
+//                     </div>
+//                     <div className="mt-2 flex flex-wrap gap-1">
+//                         {dots.map((c,i)=>(
+//                             <span
+//                                 key={i}
+//                                 className={`${dotSize} rounded-full ${
+//                                     c==="red" ? "bg-rose-500"
+//                                         : c==="amber" ? "bg-amber-400"
+//                                             : "bg-emerald-500"
+//                                 }`}
+//                             />
+//                         ))}
+//                     </div>
+//                 </div>
+//
+//                 <div className="flex items-center justify-between">
+//                     <div className="text-xs text-zinc-300">
+//                         Վճարում՝ {t.pay_methods?.includes("card")?"Քարտ":""}
+//                         {t.pay_methods?.includes("card")&&t.pay_methods?.includes("cash")?" · ":""}
+//                         {t.pay_methods?.includes("cash")?"Կանխիկ":""}
+//                     </div>
+//                     {canBook ? (
+//                         <button
+//                             onClick={()=>{ setShowInteractive(false); onBook?.(t); }}
+//                             disabled={free<=0}
+//                             className="rounded-lg border border-white/10 bg-amber-400/90 px-3 py-1.5 text-sm font-medium text-zinc-900 shadow disabled:opacity-50"
+//                         >
+//                             Ամրագրել
+//                         </button>
+//                     ) : (
+//                         <Link href="/login" className="rounded-lg bg-black px-3 py-1.5 text-sm text-[#ffdd2c]">
+//                             Մուտք գործել
+//                         </Link>
+//                     )}
+//                 </div>
+//             </div>
+//         </motion.div>
+//     );
+// }
+//
+// /* -------- MapLibre mini route (static/interactive) -------- */
+// function MiniMapLibreRoute({ A, B, interactive }) {
+//     const ref = useRef(null);
+//     const mapRef = useRef(null);
+//     const srcId = useRef(`route-src-${Math.random().toString(36).slice(2)}`).current;
+//     const layerId = useRef(`route-layer-${Math.random().toString(36).slice(2)}`).current;
+//
+//     useEffect(() => {
+//         let destroyed = false;
+//         (async () => {
+//             if (![A?.lng, A?.lat, B?.lng, B?.lat].every(Number.isFinite)) return;
+//             const maplibregl = await ensureMapLibre();
+//             if (destroyed) return;
+//
+//             const style = {
+//                 version: 8,
+//                 sources: { osm: { type: "raster", tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"], tileSize: 256 } },
+//                 layers: [{ id: "osm", type: "raster", source: "osm" }],
+//             };
+//
+//             const center = [(A.lng + B.lng)/2, (A.lat + B.lat)/2];
+//             const map = new maplibregl.Map({
+//                 container: ref.current, style, center, zoom: 8, attributionControl: false,
+//             });
+//             mapRef.current = map;
+//
+//             if (interactive) {
+//                 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+//                 map.addControl(new maplibregl.ScaleControl({ unit: "metric" }));
+//             } else {
+//                 map.scrollZoom.disable(); map.boxZoom.disable();
+//                 map.dragPan.disable(); map.keyboard.disable();
+//                 map.doubleClickZoom.disable(); map.touchZoomRotate.disable();
+//             }
+//
+//             const mk = (color) => {
+//                 const el = document.createElement("div");
+//                 el.style.cssText = `width:12px;height:12px;border-radius:50%;
+//           box-shadow:0 0 0 2px #fff,0 0 0 4px ${color};background:${color};`;
+//                 return el;
+//             };
+//             new maplibregl.Marker({ element: mk("#16a34a") }).setLngLat([A.lng, A.lat]).addTo(map);
+//             new maplibregl.Marker({ element: mk("#ef4444") }).setLngLat([B.lng, B.lat]).addTo(map);
+//
+//             try {
+//                 const r = await osrmRoute("driving", A, B);
+//                 const geo = r?.geometry || { type:"LineString", coordinates: [[A.lng,A.lat],[B.lng,B.lat]] };
+//                 map.addSource(srcId, { type:"geojson", data:{ type:"Feature", properties:{}, geometry: geo } });
+//                 map.addLayer({
+//                     id: layerId, type:"line", source: srcId,
+//                     paint:{ "line-color":"#1d4ed8", "line-width":4, "line-opacity":0.9 },
+//                     layout:{ "line-cap":"round","line-join":"round" }
+//                 });
+//                 const c = geo.coordinates;
+//                 const b = c.reduce((Bnds,p)=>Bnds.extend(p), new maplibregl.LngLatBounds(c[0], c[0]));
+//                 map.fitBounds(b, { padding: 24, duration: interactive ? 600 : 0 });
+//             } catch {
+//                 const geo = { type:"LineString", coordinates: [[A.lng,A.lat],[B.lng,B.lat]] };
+//                 map.addSource(srcId, { type:"geojson", data:{ type:"Feature", properties:{}, geometry: geo } });
+//                 map.addLayer({
+//                     id: layerId, type:"line", source: srcId,
+//                     paint:{ "line-color":"#1d4ed8", "line-width":4, "line-opacity":0.9 },
+//                     layout:{ "line-cap":"round","line-join":"round" }
+//                 });
+//             }
+//         })();
+//
+//         return () => { destroyed = true; try { mapRef.current && mapRef.current.remove(); } catch {} };
+//     }, [A?.lng, A?.lat, B?.lng, B?.lat, interactive, layerId, srcId]);
+//
+//     return <div ref={ref} className="h-full w-full"/>;
+// }
+//
+// /* ------------ BOOK MODAL ------------ */
+// function BookModal({ t, onClose }) {
+//     const allowedPays = t?.pay_methods || [];
+//     const defaultPay = allowedPays.includes("cash")
+//         ? "cash"
+//         : allowedPays.includes("card")
+//             ? "card"
+//             : "cash";
+//
+//     const [description, setDescription] = useState("");
+//     const [seats, setSeats] = useState(1);
+//     const [payment, setPayment] = useState(defaultPay);
+//     const [errors, setErrors] = useState({});
+//     const [processing, setProcessing] = useState(false);
+//
+//     useEffect(() => {
+//         document.body.classList.add("modal-open");
+//         return () => document.body.classList.remove("modal-open");
+//     }, []);
+//
+//     const total = seats * (t.price_amd || 0);
+//
+//     function submit(e) {
+//         e.preventDefault();
+//         setProcessing(true);
+//         router.post(
+//             `/trips/${t.id}/book`,
+//             { description, seats, payment },
+//             {
+//                 preserveScroll: true,
+//                 onError: (e) => { setErrors(e); setProcessing(false); },
+//                 onSuccess: () => { setProcessing(false); onClose(); },
+//             }
+//         );
+//     }
+//
+//     const canUseCash = allowedPays.includes("cash");
+//     const canUseCard = allowedPays.includes("card");
+//
+//     return createPortal(
+//         <motion.div
+//             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+//             className="fixed inset-0 z-[9999] grid place-items-center bg-black/60 p-4"
+//             onClick={onClose}
+//         >
+//             <motion.div
+//                 initial={{ y: 24, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 12, opacity: 0 }}
+//                 transition={{ type: "spring", stiffness: 420, damping: 32 }}
+//                 className="w-full max-w-md overflow-hidden rounded-2xl border border-white/10 bg-zinc-950/90 shadow-xl backdrop-blur-xl"
+//                 onClick={(e) => e.stopPropagation()}
+//             >
+//                 <div className="flex items-center justify-between border-b border-white/5 p-4">
+//                     <div className="text-sm font-semibold text-white">Ամրագրել ուղևորություն</div>
+//                     <button onClick={onClose} className="rounded-md p-1 text-zinc-300 hover:bg-white/5"><X className="h-4 w-4" /></button>
+//                 </div>
+//
+//                 <div className="p-4 text-sm text-zinc-300">
+//                     <div className="mb-3 text-zinc-200">
+//                         {t.from_addr} → {t.to_addr} · {formatAMD(t.price_amd)} AMD / տեղ
+//                     </div>
+//
+//                     <form onSubmit={submit} className="space-y-3">
+//                         <FieldSmall
+//                             as="textarea"
+//                             label="Նշում վարորդին"
+//                             value={description}
+//                             onChange={setDescription}
+//                             error={errors.description}
+//                         />
+//
+//                         <div className="grid grid-cols-2 gap-3">
+//                             <FieldSmall
+//                                 type="number"
+//                                 label="Տեղերի թիվ"
+//                                 value={seats}
+//                                 onChange={(v) => setSeats(Math.max(1, Math.min(3, Number(v) || 1)))}
+//                                 error={errors.seats}
+//                             />
+//                             <div>
+//                                 <div className="mb-1 text-xs text-zinc-400">Վճարում</div>
+//                                 <div className="flex gap-2">
+//                                     <Chip
+//                                         active={payment === "cash"}
+//                                         onClick={() => canUseCash && setPayment("cash")}
+//                                         disabled={!canUseCash}
+//                                     >
+//                                         <HandCoins className="h-3.5 w-3.5" /> Կանխիկ
+//                                     </Chip>
+//                                     <Chip
+//                                         active={payment === "card"}
+//                                         onClick={() => canUseCard && setPayment("card")}
+//                                         disabled={!canUseCard}
+//                                     >
+//                                         <CreditCard className="h-3.5 w-3.5" /> Քարտ
+//                                     </Chip>
+//                                 </div>
+//                                 {errors.payment && <div className="mt-1 text-[11px] text-rose-400">{errors.payment}</div>}
+//                             </div>
+//                         </div>
+//
+//                         <div className="text-зinc-200">
+//                             Ընդհանուր՝ <b className="text-amber-200">{formatAMD(total)} AMD</b>
+//                         </div>
+//
+//                         <div className="flex justify-end gap-2 pt-2">
+//                             <button type="button" onClick={onClose} className="rounded-xl border border-white/10 px-3 py-1.5 text-sm text-zinc-200 hover:bg-white/5">Փակել</button>
+//                             <button
+//                                 disabled={processing}
+//                                 className="rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 px-3 py-1.5 text-sm font-semibold text-зinc-900 shadow disabled:opacity-60"
+//                             >
+//                                 {processing ? "Ուղարկում…" : "Ուղարկել հայտը"}
+//                             </button>
+//                         </div>
+//                     </form>
+//                 </div>
+//             </motion.div>
+//         </motion.div>,
+//         document.body
+//     );
+// }
+//
+// /* ------------ small UI helpers ------------ */
+// function Chip({ active, onClick, disabled, children }) {
+//     return (
+//         <button
+//             type="button"
+//             onClick={onClick}
+//             disabled={disabled}
+//             className={`inline-flex items-center gap-1 rounded-xl border px-3 py-1.5 text-sm transition
+//         ${active ? "border-amber-300/50 bg-amber-300/20 text-amber-100" : "border-white/10 bg-zinc-900/60 text-zinc-200 hover:bg-white/5"}
+//         ${disabled ? "opacity-40 cursor-not-allowed hover:bg-transparent" : ""}`}
+//         >
+//             {children}
+//         </button>
+//     );
+// }
+//
+// function Field({ icon, value, onChange, placeholder, type = "text", className = "" }) {
+//     return (
+//         <label className={`relative ${className}`}>
+//             <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-amber-200 opacity-70">{icon}</div>
+//             <input
+//                 type={type}
+//                 value={value}
+//                 onChange={(e) => onChange(e.target.value)}
+//                 placeholder={placeholder}
+//                 className="w-full rounded-2xl border border-white/10 bg-zinc-900/60 px-10 py-3.5 text-white placeholder-zinc-400 outline-none ring-0 transition focus:border-amber-400/60 focus:bg-zinc-900/70 focus:ring-2 focus:ring-amber-400/40"
+//             />
+//         </label>
+//     );
+// }
+// function FieldSmall({ label, value, onChange, type="text", as="input", error }) {
+//     const Comp = as === "textarea" ? "textarea" : "input";
+//     return (
+//         <label className="block text-xs">
+//             <div className="mb-1 text-zinc-400">{label}</div>
+//             <Comp
+//                 {...(as === "textarea" ? { rows: 3 } : { type })}
+//                 value={value}
+//                 onChange={(e) => onChange(e.target.value)}
+//                 className="w-full rounded-xl border border-white/10 bg-zinc-900/60 px-3 py-2 text-white placeholder-zinc-400 outline-none ring-0 transition focus:border-amber-400/60 focus:bg-zinc-900/70 focus:ring-2 focus:ring-amber-400/30"
+//             />
+//             {error && <div className="mt-1 text-[11px] text-rose-400">{error}</div>}
+//         </label>
+//     );
+// }
+//
+// function Pagination({ meta, links }) {
+//     if (!meta || !links) return null;
+//     return (
+//         <div className="mt-2 flex justify-center gap-2">
+//             {links.map((l,i)=>(
+//                 <Link key={i} href={l.url||""} preserveScroll
+//                       className={`rounded-lg px-3 py-1.5 text-sm ${l.active?"bg-black text-[#ffdd2c]":"border border-white/10 bg-zinc-900/60 text-white hover:bg-white/5"} ${!l.url?"pointer-events-none opacity-40":""}`}
+//                       dangerouslySetInnerHTML={{__html:l.label}} />
+//             ))}
+//         </div>
+//     );
+// }
+import React, { useEffect, useState, useRef } from "react";
+import { Link, router, usePage } from "@inertiajs/react";
+import dayjs from "dayjs";
+import { createPortal } from "react-dom";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+    Search, MapPin, Calendar, Wallet, Users,
+    CreditCard, HandCoins, SlidersHorizontal, X, Car, ListChecks
+} from "lucide-react";
+import ClientLayout from "@/Layouts/ClientLayout";
+/* ========= helpers ========= */
+const NOMI_LANG = "hy,ru,en";
+
+async function reverseGeocodeNominatim(lng, lat) {
+    try {
+        const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&accept-language=${encodeURIComponent(
+            NOMI_LANG
+        )}&lat=${lat}&lon=${lng}&addressdetails=1`;
+        const r = await fetch(url, { headers: { Accept: "application/json" } });
+        if (!r.ok) return "";
+        const d = await r.json();
+        const a = d?.address || {};
+        const parts = [a.road, a.suburb, a.city || a.town || a.village, a.country].filter(Boolean);
+        return parts.join(", ") || d?.display_name || "";
+    } catch { return ""; }
+}
+
+async function osrmRoute(profile, A, B) {
+    const url = `https://router.project-osrm.org/route/v1/${profile}/${A.lng},${A.lat};${B.lng},${B.lat}?overview=full&geometries=geojson&alternatives=false`;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error("OSRM " + r.status);
+    const d = await r.json();
+    return d?.routes?.[0] || null;
+}
+
+function ensureMapLibre() {
+    return new Promise((resolve, reject) => {
+        if (window.maplibregl) return resolve(window.maplibregl);
+        const cssId = "maplibre-css";
+        if (!document.getElementById(cssId)) {
+            const l = document.createElement("link");
+            l.id = cssId; l.rel = "stylesheet";
+            l.href = "https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css";
+            document.head.appendChild(l);
+        }
+        const s = document.createElement("script");
+        s.src = "https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js";
+        s.async = true;
+        s.onload = () => resolve(window.maplibregl);
+        s.onerror = () => reject(new Error("Failed to load MapLibre"));
+        document.body.appendChild(s);
+    });
+}
+
+/* ========= small utils ========= */
+function num(v, fb = null) {
+    const n = typeof v === "string" ? parseFloat(v) : (typeof v === "number" ? v : NaN);
+    return Number.isFinite(n) ? n : fb;
+}
+function formatAMD(n){ try{ return new Intl.NumberFormat("hy-AM").format(n||0);}catch{return n;} }
+function distributeDots(n, taken, pending, free){
+    const arr=[]; let r=Math.min(n,taken); for(let i=0;i<r;i++)arr.push("red");
+    let a=Math.min(n-arr.length,pending); for(let i=0;i<a;i++)arr.push("amber");
+    let g=Math.min(n-arr.length,free); for(let i=0;i<g;i++)arr.push("green");
+    while(arr.length<n)arr.push("green"); return arr.slice(0,n);
+}
+
+/* ================= PAGE ================= */
+export default function Explore() {
+
+    const { trips, filters, auth, amenityFilters } = usePage().props;
+    const [bookTrip, setBookTrip] = useState(null);
+
+    return (
+        <div className="-mx-4">
+            <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(80%_60%_at_50%_-20%,#ecfdf5,transparent),linear-gradient(to_bottom_right,#f8fafc,#ecfeff)]">
+                <motion.div
+                    className="pointer-events-none absolute -top-24 -left-24 h-72 w-72 rounded-full bg-emerald-300/30 blur-3xl"
+                    animate={{ opacity: [0.3, 0.6, 0.3] }}
+                    transition={{ repeat: Infinity, duration: 8 }}
+                />
+                <motion.div
+                    className="pointer-events-none absolute -bottom-24 -right-24 h-80 w-80 rounded-full bg-cyan-300/20 blur-3xl"
+                    animate={{ opacity: [0.2, 0.5, 0.2] }}
+                    transition={{ repeat: Infinity, duration: 10 }}
+                />
+
+                <div className="relative z-10 mx-auto max-w-6xl px-4 pt-8 pb-10">
+                    <div className="mb-6 flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                            <div className="relative">
+                                <div className="absolute -inset-1 rounded-xl bg-emerald-400/30 blur-lg" />
+                                <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-cyan-500 text-white shadow-lg">
+                                    <Car className="h-6 w-6" />
+                                </div>
+                            </div>
+                            <div>
+                                <h1 className="text-xl font-bold tracking-tight text-slate-900">Poputi Taxi</h1>
+                                <div className="text-xs uppercase tracking-wider text-emerald-700/80">Գտնել ուղևորություն</div>
+                            </div>
+                        </div>
+                        <div className="hidden text-sm text-slate-600 md:block">Ճանապարհորդեք միասին</div>
+                    </div>
+
+                    <SearchForm filters={filters} amenityFilters={amenityFilters} />
+
+                    <ResultsList
+                        trips={trips}
+                        canBook={!!auth?.user}
+                        onBook={(t)=> setBookTrip(t)}
+                    />
+
+                    <AnimatePresence>
+                        {bookTrip && <BookModal t={bookTrip} onClose={()=> setBookTrip(null)} />}
+                    </AnimatePresence>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+/* ------------ SEARCH ------------ */
+function SearchForm({ filters, amenityFilters }) {
+    const [f, setF] = useState({
+        from: filters?.from || "",
+        to: filters?.to || "",
+        date: filters?.date || "",
+        max_price: filters?.max_price ?? "",
+        seats: filters?.seats ?? "",
+        pay: filters?.pay ?? "",
+    });
+
+    const initialAmenityIds = (filters?.amenities||"")
+        .split(",")
+        .map(x=>parseInt(x,10))
+        .filter(Number.isFinite);
+    const [amenityIds, setAmenityIds] = useState(new Set(initialAmenityIds));
+    const [showAmenities, setShowAmenities] = useState(false);
+
+    useEffect(()=>{
+        setF({
+            from: filters?.from || "",
+            to: filters?.to || "",
+            date: filters?.date || "",
+            max_price: filters?.max_price ?? "",
+            seats: filters?.seats ?? "",
+            pay: filters?.pay ?? "",
+        });
+        setAmenityIds(new Set(
+            (filters?.amenities||"").split(",").map(x=>parseInt(x,10)).filter(Number.isFinite)
+        ));
+    }, [filters?.from, filters?.to, filters?.date, filters?.max_price, filters?.seats, filters?.pay, filters?.amenities]);
+
+    function toggleAmenity(id){
+        setAmenityIds(prev=>{
+            const s = new Set(prev);
+            if (s.has(id)) s.delete(id); else s.add(id);
+            return s;
+        });
+    }
+
+    function submit(e){
+        e.preventDefault();
+        const amenities = Array.from(amenityIds.values()).join(",");
+        router.get("/trips", { ...f, amenities }, { preserveScroll:true, preserveState:true });
+    }
+
+    const selectedCount = amenityIds.size;
+
+    return (
+        <motion.form
+            onSubmit={submit}
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6 grid gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-xl md:grid-cols-12"
+        >
+            <Field icon={<MapPin className="h-4 w-4" />} placeholder="Որտեղից" value={f.from} onChange={(v)=>setF(s=>({...s,from:v}))} className="md:col-span-3"/>
+            <Field icon={<MapPin className="h-4 w-4" />} placeholder="Ուր" value={f.to} onChange={(v)=>setF(s=>({...s,to:v}))} className="md:col-span-3"/>
+            <Field type="date" icon={<Calendar className="h-4 w-4" />} placeholder="Ամսաթիվ" value={f.date} onChange={(v)=>setF(s=>({...s,date:v}))} className="md:col-span-2"/>
+
+            <div className="md:col-span-2">
+                <div className="mb-1 flex items-center justify-between text-xs text-slate-600">
+                    <span className="inline-flex items-center gap-1"><Wallet className="h-3.5 w-3.5" /> Գինը մինչև</span>
+                    <span className="font-medium text-emerald-700">{formatAMD(f.max_price || 0)} AMD</span>
+                </div>
+                <input
+                    type="range" min={0} max={20000} step={500}
+                    value={Number.isFinite(+f.max_price) ? +f.max_price : 0}
+                    onChange={(e)=>setF(s=>({...s,max_price:Number(e.target.value)}))}
+                    className="w-full accent-emerald-500"
+                />
+            </div>
+
+            <div className="md:col-span-2">
+                <div className="mb-1 flex items-center justify-between text-xs text-slate-600"><Users className="mr-1 h-3.5 w-3.5"/> Տեղեր</div>
+                <div className="flex items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={()=>setF(s=>({...s,seats: Math.max(1, (Number(s.seats)||1)-1)}))}
+                        className="h-9 w-9 rounded-xl border border-slate-300 text-slate-700 transition hover:bg-slate-100"
+                    >-</button>
+                    <div className="min-w-12 rounded-xl border border-slate-300 bg-white px-3 py-2 text-center text-slate-800">
+                        {f.seats||1}
+                    </div>
+                    <button
+                        type="button"
+                        onClick={()=>setF(s=>({...s,seats: Math.min(4, (Number(s.seats)||1)+1)}))}
+                        className="h-9 w-9 rounded-xl border border-slate-300 text-slate-700 transition hover:bg-slate-100"
+                    >+</button>
+                </div>
+            </div>
+
+            <div className="md:col-span-2">
+                <div className="mb-1 flex items-center justify-between text-xs text-slate-600"><SlidersHorizontal className="mr-1 h-3.5 w-3.5"/> Վճարում</div>
+                <div className="flex gap-2">
+                    <Chip active={(f.pay||"") === ""} onClick={()=>setF(s=>({...s,pay:""}))}>Բոլորը</Chip>
+                    <Chip active={f.pay==="cash"} onClick={()=>setF(s=>({...s,pay:"cash"}))}><HandCoins className="h-3.5 w-3.5"/> Կանխիկ</Chip>
+                    <Chip active={f.pay==="card"} onClick={()=>setF(s=>({...s,pay:"card"}))}><CreditCard className="h-3.5 w-3.5"/> Քարտ</Chip>
+                </div>
+            </div>
+
+            <div className="md:col-span-12 flex items-center justify-end gap-2 pt-1">
+                <Link
+                    href="/trips"
+                    preserveScroll
+                    preserveState
+                    className="rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm text-slate-800 hover:bg-slate-100"
+                >
+                    Մաքրել
+                </Link>
+                <button
+                    type="submit"
+                    className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-cyan-500 px-4 py-2 font-semibold text-white shadow"
+                >
+                    <Search className="h-4 w-4"/> Փնտրել
+                </button>
+            </div>
+
+            {/* Удобства */}
+            <div className="md:col-span-12">
+                <div className="mb-1 flex items-center justify-between text-xs text-slate-600">
+                    <span className="inline-flex items-center gap-1"><ListChecks className="h-3.5 w-3.5" /> Հարմարություններ</span>
+                    {selectedCount>0 && <span className="rounded bg-emerald-100 px-2 py-[2px] text-[11px] text-emerald-700 ring-1 ring-emerald-200">{selectedCount}</span>}
+                </div>
+                <button
+                    type="button"
+                    onClick={()=>setShowAmenities(true)}
+                    className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-3.5 text-left text-slate-800 hover:bg-slate-50"
+                >
+                    {selectedCount>0 ? "Ընտրված է՝ " + selectedCount : "Ընտրել"}
+                </button>
+
+                <AnimatePresence>
+                    {showAmenities && (
+                        <AmenityPicker
+                            amenitiesByCat={amenityFilters||[]}
+                            selected={amenityIds}
+                            onToggle={toggleAmenity}
+                            onClear={()=>setAmenityIds(new Set())}
+                            onClose={()=>setShowAmenities(false)}
+                        />
+                    )}
+                </AnimatePresence>
+            </div>
+        </motion.form>
+    );
+}
+
+/* -------- Модалка удобств -------- */
+function AmenityPicker({ amenitiesByCat, selected, onToggle, onClear, onClose }) {
+    return createPortal(
+        <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[9998] grid place-items-center bg-black/40 p-4"
+            onClick={onClose}
+        >
+            <motion.div
+                initial={{ y: 24, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 12, opacity: 0 }}
+                transition={{ type: "spring", stiffness: 420, damping: 32 }}
+                className="w-full max-w-2xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl"
+                onClick={(e)=>e.stopPropagation()}
+            >
+                <div className="flex items-center justify-between border-b border-slate-200 p-4">
+                    <div className="text-sm font-semibold text-slate-900">Ընտրել հարմարություններ</div>
+                    <button onClick={onClose} className="rounded-md p-1 text-slate-700 hover:bg-slate-100"><X className="h-4 w-4"/></button>
+                </div>
+
+                <div className="max-h-[70vh] overflow-auto p-4">
+                    {(amenitiesByCat||[]).map(cat=>(
+                        <div key={cat.id} className="mb-3 rounded-xl border border-slate-200 p-3">
+                            <div className="mb-2 text-xs font-semibold text-emerald-700">{cat.name}</div>
+                            <div className="flex flex-wrap gap-3">
+                                {(cat.amenities||[]).map(a=>(
+                                    <label key={a.id} className="inline-flex items-center gap-2 text-sm text-slate-800">
+                                        <input
+                                            type="checkbox"
+                                            checked={selected.has(a.id)}
+                                            onChange={()=>onToggle(a.id)}
+                                        />
+                                        {a.name}
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                <div className="flex justify-end gap-2 border-t border-slate-200 p-3">
+                    <button
+                        type="button"
+                        onClick={onClear}
+                        className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800 hover:bg-slate-100"
+                    >
+                        Մաքրել
+                    </button>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 px-3 py-1.5 text-sm font-semibold text-white shadow"
+                    >
+                        Կատարել
+                    </button>
+                </div>
+            </motion.div>
+        </motion.div>,
+        document.body
+    );
+}
+
+/* ------------ RESULTS ------------ */
+function ResultsList({ trips, canBook, onBook }) {
+    return (
+        <section className="pb-10">
+            {trips?.data?.length === 0 ? (
+                <motion.div
+                    initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                    className="overflow-hidden rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-xl"
+                >
+                    <div className="mx-auto mb-4 h-24 w-24 rounded-full border border-slate-200 bg-slate-50" />
+                    <div className="text-lg font-semibold text-slate-900">Չեն գտնվել ուղևորություններ</div>
+                    <div className="text-sm text-slate-600">Փորձեք փոխել որոնման պայմանները</div>
+                </motion.div>
+            ) : (
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {trips?.data?.map(t => <TripCard key={t.id} t={t} canBook={canBook} onBook={onBook} />)}
+                </div>
+            )}
+
+            <Pagination meta={trips?.meta} links={trips?.links}/>
+        </section>
+    );
+}
+
+function TripCard({ t, canBook, onBook }) {
+    const taken   = t.seats_taken || 0;
+    const pending = t.pending_requests_count || 0;
+    const totalSeats = Number(t.seats_total) || 0;
+    const free = Math.max(0, totalSeats - taken);
+    const dots = distributeDots(totalSeats, taken, pending, free);
+    const dotSize = totalSeats > 6 ? 'h-2.5 w-2.5' : 'h-3 w-3';
+
+    const [fromLabel, setFromLabel] = useState(t.from_addr || "");
+    const [toLabel, setToLabel] = useState(t.to_addr || "");
+    useEffect(() => {
+        (async () => {
+            if (!fromLabel && Number.isFinite(+t.from_lng) && Number.isFinite(+t.from_lat)) {
+                const s = await reverseGeocodeNominatim(+t.from_lng, +t.from_lat);
+                if (s) setFromLabel(s);
+            }
+            if (!toLabel && Number.isFinite(+t.to_lng) && Number.isFinite(+t.to_lat)) {
+                const s = await reverseGeocodeNominatim(+t.to_lng, +t.to_lat);
+                if (s) setToLabel(s);
+            }
+        })();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const [showInteractive, setShowInteractive] = useState(false);
+
+    return (
+        <motion.div
+            layout
+            initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+            className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl"
+        >
+            <div className="flex items-center justify-between p-3 text-slate-600">
+                <div className="text-xs">{t.driver?.name || "Վարորդ"}</div>
+                <div className="text-xs">{t.departure_at ? dayjs(t.departure_at).format("MM-DD HH:mm") : "—"}</div>
+            </div>
+
+            <div className="mini-map relative h-36 overflow-hidden">
+                <MiniMapLibreRoute
+                    A={{ lng:num(t.from_lng), lat:num(t.from_lat) }}
+                    B={{ lng:num(t.to_lng),   lat:num(t.to_lat)   }}
+                    interactive={false}
+                />
+                {showInteractive && (
+                    <div className="absolute inset-0 z-10">
+                        <MiniMapLibreRoute
+                            A={{ lng:num(t.from_lng), lat:num(t.from_lat) }}
+                            B={{ lng:num(t.to_lng),   lat:num(t.to_lat)   }}
+                            interactive={true}
+                        />
+                        <button
+                            type="button"
+                            onClick={()=>setShowInteractive(false)}
+                            className="absolute right-2 top-2 rounded-md bg-black/70 px-2 py-[2px] text-[11px] text-white"
+                        >
+                            Կանգնեցնել
+                        </button>
+                    </div>
+                )}
+                <div className="pointer-events-none absolute left-3 top-3 rounded-lg bg-black/60 px-2 py-1 text-xs text-white">
+                    {t.vehicle?.brand} {t.vehicle?.model} · {t.vehicle?.plate || t.plate}
+                </div>
+                <button
+                    type="button"
+                    className="absolute bottom-2 right-2 rounded-lg bg-black/70 px-2 py-1 text-[11px] text-white shadow"
+                    onClick={() => setShowInteractive(v=>!v)}
+                >
+                    {showInteractive ? "Ավարտել" : "Շարժել քարտեզը"}
+                </button>
+            </div>
+
+            <div className="space-y-3 p-4">
+                <div className="text-slate-900">
+                    <span className="font-semibold">{fromLabel || t.from_addr || "—"}</span> → <span className="font-semibold">{toLabel || t.to_addr || "—"}</span>
+                </div>
+                <div className="text-sm text-slate-700">Գին՝ <b className="text-slate-900">{formatAMD(t.price_amd)} AMD</b></div>
+
+                {Array.isArray(t.amenities) && t.amenities.length>0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                        {t.amenities.slice(0,5).map(a=>(
+                            <span key={a.id} className="rounded-md bg-emerald-50 px-2 py-[2px] text-[11px] text-emerald-700 ring-1 ring-emerald-200">
+                {a.name}
+              </span>
+                        ))}
+                        {t.amenities.length>5 && (
+                            <span className="rounded-md bg-slate-50 px-2 py-[2px] text-[11px] text-slate-600 ring-1 ring-slate-200">
+                +{t.amenities.length-5}
+              </span>
+                        )}
+                    </div>
+                )}
+
+                <div>
+                    <div className="flex items-center justify-between text-xs text-slate-600">
+                        <span>Տեղեր՝ {taken}/{t.seats_total}</span>
+                        <span>Սպասում են՝ {pending}</span>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                        {dots.map((c,i)=>(
+                            <span
+                                key={i}
+                                className={`${dotSize} rounded-full ${
+                                    c==="red" ? "bg-rose-500"
+                                        : c==="amber" ? "bg-amber-400"
+                                            : "bg-emerald-500"
+                                }`}
+                            />
+                        ))}
+                    </div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                    <div className="text-xs text-slate-600">
+                        Վճարում՝ {t.pay_methods?.includes("card")?"Քարտ":""}
+                        {t.pay_methods?.includes("card")&&t.pay_methods?.includes("cash")?" · ":""}
+                        {t.pay_methods?.includes("cash")?"Կանխիկ":""}
+                    </div>
+                    {canBook ? (
+                        <button
+                            onClick={()=>{ setShowInteractive(false); onBook?.(t); }}
+                            disabled={free<=0}
+                            className="rounded-lg bg-gradient-to-r from-emerald-500 to-cyan-500 px-3 py-1.5 text-sm font-medium text-white shadow disabled:opacity-50"
+                        >
+                            Ամրագրել
+                        </button>
+                    ) : (
+                        <Link href="/login" className="rounded-lg bg-gradient-to-r from-emerald-500 to-cyan-500 px-3 py-1.5 text-sm text-white shadow">
+                            Մուտք գործել
+                        </Link>
+                    )}
+                </div>
+            </div>
+        </motion.div>
+    );
+}
+
+/* -------- MapLibre mini route -------- */
+function MiniMapLibreRoute({ A, B, interactive }) {
+    const ref = useRef(null);
+    const mapRef = useRef(null);
+    const srcId = useRef(`route-src-${Math.random().toString(36).slice(2)}`).current;
+    const layerId = useRef(`route-layer-${Math.random().toString(36).slice(2)}`).current;
+
+    useEffect(() => {
+        let destroyed = false;
+        (async () => {
+            if (![A?.lng, A?.lat, B?.lng, B?.lat].every(Number.isFinite)) return;
+            const maplibregl = await ensureMapLibre();
+            if (destroyed) return;
+
+            const style = {
+                version: 8,
+                sources: { osm: { type: "raster", tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"], tileSize: 256 } },
+                layers: [{ id: "osm", type: "raster", source: "osm" }],
+            };
+
+            const center = [(A.lng + B.lng)/2, (A.lat + B.lat)/2];
+            const map = new maplibregl.Map({
+                container: ref.current, style, center, zoom: 8, attributionControl: false,
+            });
+            mapRef.current = map;
+
+            if (interactive) {
+                map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+                map.addControl(new maplibregl.ScaleControl({ unit: "metric" }));
+            } else {
+                map.scrollZoom.disable(); map.boxZoom.disable();
+                map.dragPan.disable(); map.keyboard.disable();
+                map.doubleClickZoom.disable(); map.touchZoomRotate.disable();
+            }
+
+            const mk = (color) => {
+                const el = document.createElement("div");
+                el.style.cssText = `width:12px;height:12px;border-radius:50%;
+          box-shadow:0 0 0 2px #fff,0 0 0 4px ${color};background:${color};`;
+                return el;
+            };
+            new maplibregl.Marker({ element: mk("#16a34a") }).setLngLat([A.lng, A.lat]).addTo(map);
+            new maplibregl.Marker({ element: mk("#ef4444") }).setLngLat([B.lng, B.lat]).addTo(map);
+
+            try {
+                const r = await osrmRoute("driving", A, B);
+                const geo = r?.geometry || { type:"LineString", coordinates: [[A.lng,A.lat],[B.lng,B.lat]] };
+                map.addSource(srcId, { type:"geojson", data:{ type:"Feature", properties:{}, geometry: geo } });
+                map.addLayer({
+                    id: layerId, type:"line", source: srcId,
+                    paint:{ "line-color":"#06b6d4", "line-width":4, "line-opacity":0.9 },
+                    layout:{ "line-cap":"round","line-join":"round" }
+                });
+                const c = geo.coordinates;
+                const b = c.reduce((Bnds,p)=>Bnds.extend(p), new maplibregl.LngLatBounds(c[0], c[0]));
+                map.fitBounds(b, { padding: 24, duration: interactive ? 600 : 0 });
+            } catch {
+                const geo = { type:"LineString", coordinates: [[A.lng,A.lat],[B.lng,B.lat]] };
+                map.addSource(srcId, { type:"geojson", data:{ type:"Feature", properties:{}, geometry: geo } });
+                map.addLayer({
+                    id: layerId, type:"line", source: srcId,
+                    paint:{ "line-color":"#06b6d4", "line-width":4, "line-opacity":0.9 },
+                    layout:{ "line-cap":"round","line-join":"round" }
+                });
+            }
+        })();
+
+        return () => { destroyed = true; try { mapRef.current && mapRef.current.remove(); } catch {} };
+    }, [A?.lng, A?.lat, B?.lng, B?.lat, interactive, layerId, srcId]);
+
+    return <div ref={ref} className="h-full w-full"/>;
+}
+
+/* ------------ BOOK MODAL ------------ */
+function BookModal({ t, onClose }) {
+    const allowedPays = t?.pay_methods || [];
+    const defaultPay = allowedPays.includes("cash")
+        ? "cash"
+        : allowedPays.includes("card")
+            ? "card"
+            : "cash";
+
+    const [description, setDescription] = useState("");
+    const [seats, setSeats] = useState(1);
+    const [payment, setPayment] = useState(defaultPay);
+    const [errors, setErrors] = useState({});
+    const [processing, setProcessing] = useState(false);
+
+    useEffect(() => {
+        document.body.classList.add("modal-open");
+        return () => document.body.classList.remove("modal-open");
+    }, []);
+
+    const total = seats * (t.price_amd || 0);
+
+    function submit(e) {
+        e.preventDefault();
+        setProcessing(true);
+        router.post(
+            `/trips/${t.id}/book`,
+            { description, seats, payment },
+            {
+                preserveScroll: true,
+                onError: (e) => { setErrors(e); setProcessing(false); },
+                onSuccess: () => { setProcessing(false); onClose(); },
+            }
+        );
+    }
+
+    const canUseCash = allowedPays.includes("cash");
+    const canUseCard = allowedPays.includes("card");
+
+    return createPortal(
+        <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[9999] grid place-items-center bg-black/40 p-4"
+            onClick={onClose}
+        >
+            <motion.div
+                initial={{ y: 24, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 12, opacity: 0 }}
+                transition={{ type: "spring", stiffness: 420, damping: 32 }}
+                className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div className="flex items-center justify-between border-b border-slate-200 p-4">
+                    <div className="text-sm font-semibold text-slate-900">Ամրագրել ուղևորություն</div>
+                    <button onClick={onClose} className="rounded-md p-1 text-slate-700 hover:bg-slate-100"><X className="h-4 w-4" /></button>
+                </div>
+
+                <div className="p-4 text-sm text-slate-700">
+                    <div className="mb-3 text-slate-900">
+                        {t.from_addr} → {t.to_addr} · {formatAMD(t.price_amd)} AMD / տեղ
+                    </div>
+
+                    <form onSubmit={submit} className="space-y-3">
+                        <FieldSmall
+                            as="textarea"
+                            label="Նշում վարորդին"
+                            value={description}
+                            onChange={setDescription}
+                            error={errors.description}
+                        />
+
+                        <div className="grid grid-cols-2 gap-3">
+                            <FieldSmall
+                                type="number"
+                                label="Տեղերի թիվ"
+                                value={seats}
+                                onChange={(v) => setSeats(Math.max(1, Math.min(3, Number(v) || 1)))}
+                                error={errors.seats}
+                            />
+                            <div>
+                                <div className="mb-1 text-xs text-slate-600">Վճարում</div>
+                                <div className="flex gap-2">
+                                    <Chip
+                                        active={payment === "cash"}
+                                        onClick={() => canUseCash && setPayment("cash")}
+                                        disabled={!canUseCash}
+                                    >
+                                        <HandCoins className="h-3.5 w-3.5" /> Կանխիկ
+                                    </Chip>
+                                    <Chip
+                                        active={payment === "card"}
+                                        onClick={() => canUseCard && setPayment("card")}
+                                        disabled={!canUseCard}
+                                    >
+                                        <CreditCard className="h-3.5 w-3.5" /> Քարտ
+                                    </Chip>
+                                </div>
+                                {errors.payment && <div className="mt-1 text-[11px] text-rose-600">{errors.payment}</div>}
+                            </div>
+                        </div>
+
+                        <div className="text-slate-900">
+                            Ընդհանուր՝ <b className="text-emerald-700">{formatAMD(total)} AMD</b>
+                        </div>
+
+                        <div className="flex justify-end gap-2 pt-2">
+                            <button type="button" onClick={onClose} className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800 hover:bg-slate-100">Փակել</button>
+                            <button
+                                disabled={processing}
+                                className="rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 px-3 py-1.5 text-sm font-semibold text-white shadow disabled:opacity-60"
+                            >
+                                {processing ? "Ուղարկում…" : "Ուղարկել հայտը"}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </motion.div>
+        </motion.div>,
+        document.body
+    );
+}
+
+/* ------------ small UI helpers ------------ */
+function Chip({ active, onClick, disabled, children }) {
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            disabled={disabled}
+            className={`inline-flex items-center gap-1 rounded-xl border px-3 py-1.5 text-sm transition
+        ${active ? "border-emerald-300 bg-emerald-100 text-emerald-800" : "border-slate-300 bg-white text-slate-800 hover:bg-slate-100"}
+        ${disabled ? "opacity-40 cursor-not-allowed hover:bg-white" : ""}`}
+        >
+            {children}
+        </button>
+    );
+}
+
+function Field({ icon, value, onChange, placeholder, type = "text", className = "" }) {
+    return (
+        <label className={`relative ${className}`}>
+            <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-emerald-600 opacity-80">{icon}</div>
+            <input
+                type={type}
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+                placeholder={placeholder}
+                className="w-full rounded-2xl border border-slate-300 bg-white px-10 py-3.5 text-slate-900 placeholder-slate-400 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+            />
+        </label>
+    );
+}
+function FieldSmall({ label, value, onChange, type="text", as="input", error }) {
+    const Comp = as === "textarea" ? "textarea" : "input";
+    return (
+        <label className="block text-xs">
+            <div className="mb-1 text-slate-600">{label}</div>
+            <Comp
+                {...(as === "textarea" ? { rows: 3 } : { type })}
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder-slate-400 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+            />
+            {error && <div className="mt-1 text-[11px] text-rose-600">{error}</div>}
+        </label>
+    );
+}
+
+function Pagination({ meta, links }) {
+    if (!meta || !links) return null;
+    return (
+        <div className="mt-2 flex justify-center gap-2">
+            {links.map((l,i)=>(
+                <Link
+                    key={i}
+                    href={l.url||""}
+                    preserveScroll
+                    className={`rounded-lg px-3 py-1.5 text-sm ${l.active
+                        ? "bg-gradient-to-r from-emerald-500 to-cyan-500 text-white"
+                        : "border border-slate-300 bg-white text-slate-800 hover:bg-slate-100"
+                    } ${!l.url?"pointer-events-none opacity-40":""}`}
+                    dangerouslySetInnerHTML={{__html:l.label}}
+                />
+            ))}
+        </div>
+    );
+}

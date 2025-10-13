@@ -1,0 +1,894 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+
+class Amenity extends Model
+{
+    protected $fillable = [
+        'amenity_category_id', 'name', 'slug', 'icon', 'is_active', 'sort_order', 'meta'
+    ];
+
+    protected $casts = [
+        'is_active' => 'bool',
+        'meta' => 'array',
+    ];
+
+    public function category(): BelongsTo
+    {
+        return $this->belongsTo(AmenityCategory::class, 'amenity_category_id');
+    }
+
+    public function trips(): BelongsToMany
+    {
+        return $this->belongsToMany(Trip::class)
+            ->withPivot(['selected_at', 'notes'])
+            ->withTimestamps();
+    }
+}
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+
+class AmenityCategory extends Model
+{
+    protected $fillable = ['name', 'slug', 'sort_order', 'is_active'];
+
+    public function amenities(): HasMany
+    {
+        return $this->hasMany(Amenity::class);
+    }
+}
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class ChatUpload extends Model
+{
+    protected $fillable = ['user_id','path','mime','size','expires_at'];
+    protected $casts = ['expires_at'=>'datetime'];
+}
+<?php
+
+// app/Models/CheckinTicket.php
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class CheckinTicket extends Model
+{
+    protected $fillable = [
+        'token','ride_request_id','trip_id','client_user_id','driver_user_id','expires_at','used_at'
+    ];
+    protected $casts = ['expires_at'=>'datetime','used_at'=>'datetime'];
+}
+
+<?php
+
+
+
+namespace App\Models;
+
+use App\Enums\CompanyRole;
+use App\Enums\CompanyStatus;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+
+class Company extends Model
+{
+    protected $fillable = [
+        'name', 'slug', 'email', 'phone', 'owner_user_id', 'status', 'logo_path',
+        'timezone', 'locale', 'currency', 'settings', 'rating',
+    ];
+
+    protected $casts = [
+        'settings' => 'array',
+        'rating' => 'float',
+    ];
+
+    /* Владелец */
+    public function owner(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'owner_user_id');
+    }
+
+    /* Все участники с атрибутами membership (pivot) */
+    public function members(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'company_members')
+            ->using(CompanyMember::class)
+            ->as('membership')
+            ->withPivot(['role', 'status', 'rating', 'notes', 'added_by_user_id'])
+            ->withTimestamps();
+    }
+    public function users(): BelongsToMany
+    {
+        return $this->members();
+    }
+    /* Удобные фильтры по ролям */
+    public function managers(): BelongsToMany
+    {
+        return $this->members()->wherePivot('role', CompanyRole::MANAGER->value);
+    }
+
+    public function dispatchers(): BelongsToMany
+    {
+        return $this->members()->wherePivot('role', CompanyRole::DISPATCHER->value);
+    }
+
+    public function drivers(): BelongsToMany
+    {
+        return $this->members()->wherePivot('role', CompanyRole::DRIVER->value);
+    }
+
+    /* Связи, которые уже есть у вас */
+    public function vehicles(): HasMany
+    {
+        return $this->hasMany(Vehicle::class);
+    }
+
+    public function trips(): HasMany
+    {
+        return $this->hasMany(Trip::class);
+    }
+
+    /* Скоуп: компании, к которым пользователь имеет доступ (владелец или член) */
+    public function scopeForUser($q, int $userId)
+    {
+        return $q->where('owner_user_id', $userId)
+            ->orWhereHas('members', fn($qq) => $qq->where('users.id', $userId));
+    }
+
+    public function isOwner(User $u): bool
+    {
+        return (int)$this->owner_user_id === (int)$u->id;
+    }
+
+    public function roleOf(User $u): ?string
+    {
+        if ($this->isOwner($u)) return CompanyRole::OWNER->value;
+        $m = $this->members()->where('users.id', $u->id)->first();
+        return $m?->membership?->role;
+    }
+
+    public function statusIs(CompanyStatus $s): bool
+    {
+        return $this->status === $s->value;
+    }
+}
+<?php
+
+namespace App\Models;
+
+use App\Enums\CompanyMemberStatus;
+use App\Enums\CompanyRole;
+use Illuminate\Database\Eloquent\Relations\Pivot;
+
+class CompanyMember extends Pivot
+{
+    protected $table = 'company_members';
+
+    protected $fillable = [
+        'company_id',
+        'user_id',
+        'role',
+        'status',
+        'rating',
+        'notes',
+        'added_by_user_id',
+    ];
+
+    protected $casts = [
+        'rating' => 'float',
+    ];
+
+    public function isActive(): bool
+    {
+        return $this->status === CompanyMemberStatus::ACTIVE->value;
+    }
+
+    public function roleIs(CompanyRole $role): bool
+    {
+        return $this->role === $role->value;
+    }
+}
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class Conversation extends Model
+{
+    protected $fillable = [
+        'ride_request_id','driver_user_id','client_user_id','status','last_message_id'
+    ];
+
+    public function messages(){ return $this->hasMany(ConversationMessage::class); }
+    public function participants(){ return $this->hasMany(ConversationParticipant::class); }
+
+    public function scopeForPair($q, int $driverId, int $clientId) {
+        return $q->where('driver_user_id',$driverId)->where('client_user_id',$clientId);
+    }
+}
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class ConversationMessage extends Model
+{
+    protected $fillable = [
+        'conversation_id','sender_id','client_mid','type','body',
+        'attachment_path','attachment_mime','attachment_size','meta','edited_at','deleted_at'
+    ];
+    protected $casts = ['edited_at'=>'datetime','deleted_at'=>'datetime','meta'=>'array'];
+
+    public function conversation(){ return $this->belongsTo(Conversation::class); }
+    public function sender(){ return $this->belongsTo(User::class,'sender_id'); }
+}
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class ConversationParticipant extends Model
+{
+    protected $fillable = [
+        'conversation_id','user_id','role',
+        'last_read_message_id','last_seen_at','typing_until',
+    ];
+    protected $casts = ['last_seen_at'=>'datetime','typing_until'=>'datetime'];
+
+    public function conversation(){ return $this->belongsTo(Conversation::class); }
+    public function user(){ return $this->belongsTo(User::class); }
+}
+<?php
+namespace App\Models;
+use Illuminate\Database\Eloquent\Model;
+
+
+class Driver extends Model
+{
+    protected $fillable = ['user_id','selfie_path','car_photo_path'];
+    public function user(){ return $this->belongsTo(User::class); }
+}
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+class Rating extends Model
+{
+    protected $fillable = ['user_id','trip_id','rating','description'];
+
+    protected $casts = [
+        'rating' => 'float',
+    ];
+
+    public function trip(): BelongsTo { return $this->belongsTo(Trip::class); }
+    public function user(): BelongsTo { return $this->belongsTo(User::class); }
+}
+<?php
+namespace App\Models;
+use Illuminate\Database\Eloquent\Model;
+
+
+class RideRequest extends Model
+{
+//    protected $fillable = [
+//        'trip_id','user_id','passenger_name','phone','description',
+//        'seats','payment','status','decided_by_user_id','decided_at'
+//    ];
+    protected $fillable = [
+        'trip_id','user_id','passenger_name','phone','description',
+        'seats','payment','status','meta','decided_by_user_id','decided_at',
+        'is_checked_in','checked_in_at','price_amd','created_by_user_id',
+    ];
+
+    protected $casts = [
+        'meta' => 'array',
+        'is_checked_in' => 'bool',
+        'checked_in_at' => 'datetime',
+        'price_amd' => 'int',
+        'decided_at' => 'datetime',
+    ];
+
+    public function trip(){ return $this->belongsTo(\App\Models\Trip::class); }
+    public function user(){ return $this->belongsTo(\App\Models\User::class); }
+    public function decidedBy()
+    {
+        return $this->belongsTo(\App\Models\User::class, 'decided_by_user_id');
+    }
+    public function creator()
+    {
+        return $this->belongsTo(User::class,'created_by_user_id');
+    }
+}
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class RideRequestTransfer extends Model
+{
+    protected $fillable = [
+        'ride_request_id','from_trip_id','to_trip_id','company_id',
+        'transferred_by_user_id','reason','transferred_at',
+    ];
+
+    protected $casts = [
+        'transferred_at' => 'datetime',
+    ];
+
+    public function request(){ return $this->belongsTo(RideRequest::class, 'ride_request_id'); }
+    public function fromTrip(){ return $this->belongsTo(Trip::class, 'from_trip_id'); }
+    public function toTrip(){ return $this->belongsTo(Trip::class, 'to_trip_id'); }
+    public function company(){ return $this->belongsTo(Company::class, 'company_id'); }
+    public function actor(){ return $this->belongsTo(User::class, 'transferred_by_user_id'); }
+}
+<?php
+
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+
+class Trip extends Model
+{
+    protected $fillable = [
+        'user_id','vehicle_id',
+        'from_lat','from_lng','from_addr',
+        'to_lat','to_lng','to_addr',
+        'departure_at','seats_total','seats_taken',
+        'price_amd','pay_methods','status','description',
+        'type_ab_fixed','type_pax_to_pax','type_pax_to_b','type_a_to_pax',
+        'start_free_km','start_amd_per_km','start_max_km',
+        'end_free_km','end_amd_per_km','end_max_km',
+        'driver_state','driver_started_at','driver_finished_at',
+        'company_id','assigned_driver_id',
+        'eta_sec' ,
+    ];
+
+    protected $casts = [
+        'pay_methods' => 'array',
+        'departure_at' => 'datetime',
+        'type_ab_fixed' => 'bool',
+        'type_pax_to_pax' => 'bool',
+        'type_pax_to_b' => 'bool',
+        'type_a_to_pax' => 'bool',
+        'from_lat' => 'float','from_lng'=>'float',
+        'to_lat' => 'float','to_lng'=>'float',
+        'start_free_km' => 'float','start_max_km'=>'float',
+        'end_free_km' => 'float','end_max_km'=>'float',
+        'eta_sec' => 'int',
+    ];
+
+    protected $appends = ['amenity_ids'];
+
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    public function driver()
+    {
+        return $this->belongsTo(User::class, 'user_id');
+    }
+
+    public function vehicle()
+    {
+        return $this->belongsTo(Vehicle::class);
+    }
+
+    public function requests()
+    {
+        return $this->hasMany(RideRequest::class);
+    }
+
+    public function rideRequests()
+    {
+        return $this->hasMany(RideRequest::class);
+    }
+
+    public function company()
+    {
+        return $this->belongsTo(Company::class);
+    }
+
+    public function assignedDriver()
+    {
+        return $this->belongsTo(User::class, 'assigned_driver_id');
+    }
+
+    public function amenities(): BelongsToMany
+    {
+        return $this->belongsToMany(Amenity::class)
+            ->withPivot(['selected_at', 'notes'])
+            ->withTimestamps();
+    }
+
+    /** Скоуп для фильтрации по наборам удобств: все выбранные должны присутствовать */
+    public function scopeWithAllAmenities($q, array $amenityIds)
+    {
+        foreach ($amenityIds as $id) {
+            $q->whereHas('amenities', fn($qq) => $qq->where('amenities.id', $id));
+        }
+        return $q;
+    }
+
+    public function getAmenityIdsAttribute(): array
+    {
+        if ($this->relationLoaded('amenities')) {
+            return $this->amenities->pluck('id')->all();
+        }
+        // ВАЖНО: плучаем ИМЕННО amenities.id, иначе будет пусто
+        return $this->amenities()->pluck('amenities.id')->all();
+    }
+
+    public function stops()
+    {
+        return $this->hasMany(\App\Models\TripStop::class)->orderBy('position');
+    }
+
+    public function ratings()
+    {
+        return $this->hasMany(\App\Models\Rating::class);
+    }
+    public function typeKey(): string
+    {
+        if ($this->type_ab_fixed)   return 'AB';
+        if ($this->type_pax_to_pax) return 'PAX_PAX';
+        if ($this->type_pax_to_b)   return 'PAX_B';
+        if ($this->type_a_to_pax)   return 'A_PAX';
+        return 'UNKNOWN';
+    }
+
+    public function tariffStart(): array { return [
+        'free_km'=>$this->start_free_km,'amd_per_km'=>$this->start_amd_per_km,'max_km'=>$this->start_max_km
+    ];}
+
+    public function tariffEnd(): array { return [
+        'free_km'=>$this->end_free_km,'amd_per_km'=>$this->end_amd_per_km,'max_km'=>$this->end_max_km
+    ];}
+    public function routePointsFor(?User $viewer = null): \Illuminate\Support\Collection
+    {
+        $viewerId = $viewer?->id;
+        $near = static function(float $aLat,float $aLng,float $bLat,float $bLng): bool {
+            // ~40–60 м
+            $eps = 0.0006;
+            return (abs($aLat-$bLat) <= $eps) && (abs($aLng-$bLng) <= $eps);
+        };
+
+        // Координаты приватных точек (созданных клиентами, не равными текущему зрителю)
+        $foreignPrivate = [];
+        foreach ($this->rideRequests()->where('status','accepted')->get(['created_by_user_id','meta']) as $rr) {
+            $cid = $rr->created_by_user_id;
+            $m   = (array)$rr->meta;
+            if ($cid && $cid !== $viewerId) {
+                foreach (['pickup','drop'] as $k) {
+                    if (!empty($m[$k]['lat']) && !empty($m[$k]['lng'])) {
+                        $foreignPrivate[] = ['lat'=>(float)$m[$k]['lat'],'lng'=>(float)$m[$k]['lng']];
+                    }
+                }
+            }
+        }
+
+        $pts = [];
+
+        // A
+        $pts[] = ['lat'=>(float)$this->from_lat,'lng'=>(float)$this->from_lng,'public'=>true,'source'=>'A'];
+
+        // Ordered stops: маркер скрываем, если совпал с чьей-то приватной точкой
+        foreach ($this->stops()->orderBy('position')->get(['lat','lng']) as $s) {
+            $isPublic = true;
+            foreach ($foreignPrivate as $p) {
+                if ($near((float)$s->lat,(float)$s->lng,$p['lat'],$p['lng'])) { $isPublic = false; break; }
+            }
+            $pts[] = ['lat'=>(float)$s->lat,'lng'=>(float)$s->lng,'public'=>$isPublic,'source'=>'stop'];
+        }
+
+        // B
+        $pts[] = ['lat'=>(float)$this->to_lat,'lng'=>(float)$this->to_lng,'public'=>true,'source'=>'B'];
+
+        // Дополнительно: личные точки зрителя (или водительские, created_by_user_id = null) — как маркеры 'via'
+        foreach ($this->rideRequests()->where('status','accepted')->get(['user_id','created_by_user_id','meta']) as $rr) {
+            $owner = $viewerId && ($rr->created_by_user_id === $viewerId);
+            $publicForAll = is_null($rr->created_by_user_id); // создал водитель/диспетчер
+            if (!$owner && !$publicForAll) continue;
+
+            $m = (array)$rr->meta;
+            foreach (['pickup','drop'] as $k) {
+                if (!empty($m[$k]['lat']) && !empty($m[$k]['lng'])) {
+                    $pts[] = [
+                        'lat'=>(float)$m[$k]['lat'],'lng'=>(float)$m[$k]['lng'],
+                        'public'=>true,'source'=>'via'
+                    ];
+                }
+            }
+        }
+
+        // Уберём подряд идущие дубликаты
+        $out = [];
+        foreach ($pts as $p) {
+            $last = end($out) ?: null;
+            if ($last && abs($last['lat']-$p['lat'])<1e-7 && abs($last['lng']-$p['lng'])<1e-7 && $last['source']!=='via') {
+                // сохраняем более «публичный» маркер
+                $out[count($out)-1]['public'] = $out[count($out)-1]['public'] || $p['public'];
+            } else {
+                $out[] = $p;
+            }
+        }
+        return collect($out);
+    }
+
+}
+
+
+
+//
+//namespace App\Models;
+//
+//use Illuminate\Database\Eloquent\Model;
+//use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+//use Illuminate\Support\Collection;
+//
+//class Trip extends Model
+//{
+//    protected $fillable = [
+//        'user_id', 'vehicle_id',
+//        'from_lat', 'from_lng', 'from_addr',
+//        'to_lat', 'to_lng', 'to_addr',
+//        'departure_at', 'seats_total', 'seats_taken',
+//        'price_amd', 'pay_methods', 'status', 'description',
+//        'type_ab_fixed', 'type_pax_to_pax', 'type_pax_to_b', 'type_a_to_pax',
+//        'start_free_km', 'start_amd_per_km', 'start_max_km',
+//        'end_free_km', 'end_amd_per_km', 'end_max_km',
+//        'driver_state', 'driver_started_at', 'driver_finished_at',
+//        'company_id', 'assigned_driver_id',
+//        'eta_sec',
+//    ];
+//
+//    protected $casts = [
+//        'pay_methods' => 'array',
+//        'departure_at' => 'datetime',
+//        'type_ab_fixed' => 'bool',
+//        'type_pax_to_pax' => 'bool',
+//        'type_pax_to_b' => 'bool',
+//        'type_a_to_pax' => 'bool',
+//        'from_lat' => 'float', 'from_lng' => 'float',
+//        'to_lat' => 'float', 'to_lng' => 'float',
+//        'start_free_km' => 'float', 'start_max_km' => 'float',
+//        'end_free_km' => 'float', 'end_max_km' => 'float',
+//        'eta_sec' => 'int',
+//    ];
+//
+//    protected $appends = ['amenity_ids'];
+//
+//    /* relations */
+//    public function user()
+//    {
+//        return $this->belongsTo(User::class);
+//    }
+//
+//    public function driver()
+//    {
+//        return $this->belongsTo(User::class, 'user_id');
+//    }
+//
+//    public function vehicle()
+//    {
+//        return $this->belongsTo(Vehicle::class);
+//    }
+//
+//    public function company()
+//    {
+//        return $this->belongsTo(Company::class);
+//    }
+//
+//    public function assignedDriver()
+//    {
+//        return $this->belongsTo(User::class, 'assigned_driver_id');
+//    }
+//
+//    public function amenities(): BelongsToMany
+//    {
+//        return $this->belongsToMany(Amenity::class)->withPivot(['selected_at', 'notes'])->withTimestamps();
+//    }
+//
+//    public function stops()
+//    {
+//        return $this->hasMany(TripStop::class, 'trip_id')->orderBy('position');
+//    }
+//
+//    public function rideRequests()
+//    {
+//        return $this->hasMany(RideRequest::class, 'trip_id');
+//    }
+//
+//    public function ratings()
+//    {
+//        return $this->hasMany(Rating::class);
+//    }
+//
+//    /* helpers */
+//    public function scopeWithAllAmenities($q, array $amenityIds)
+//    {
+//        foreach ($amenityIds as $id) {
+//            $q->whereHas('amenities', fn($qq) => $qq->where('amenities.id', $id));
+//        }
+//        return $q;
+//    }
+//
+//    public function getAmenityIdsAttribute(): array
+//    {
+//        if ($this->relationLoaded('amenities')) return $this->amenities->pluck('id')->all();
+//        return $this->amenities()->pluck('amenities.id')->all();
+//    }
+//
+//    public function typeKey(): string
+//    {
+//        if ($this->type_ab_fixed) return 'AB';
+//        if ($this->type_pax_to_pax) return 'PAX_PAX';
+//        if ($this->type_pax_to_b) return 'PAX_B';
+//        if ($this->type_a_to_pax) return 'A_PAX';
+//        return 'UNKNOWN';
+//    }
+//
+//    public function tariffStart(): array
+//    {
+//        return [
+//            'free_km' => $this->start_free_km, 'amd_per_km' => $this->start_amd_per_km, 'max_km' => $this->start_max_km
+//        ];
+//    }
+//
+//    public function tariffEnd(): array
+//    {
+//        return [
+//            'free_km' => $this->end_free_km, 'amd_per_km' => $this->end_amd_per_km, 'max_km' => $this->end_max_km
+//        ];
+//    }
+//
+//    /**
+//     * Точки маршрута с флагом видимости маркера.
+//     * Маршрут проходит через приватные pickup/drop принятых заявок,
+//     * но чужие маркеры скрываются (видит только владелец).
+//     */
+//    public function routePointsFor(?User $viewer = null): Collection
+//    {
+//        $viewerId = $viewer?->id;
+//
+//        $pts = [];
+//        $push = static function (&$arr, $lat, $lng, bool $public, string $src, ?int $userId = null): void {
+//            if (!is_numeric($lat) || !is_numeric($lng)) return;
+//            $arr[] = [
+//                'lat' => round((float)$lat, 6),
+//                'lng' => round((float)$lng, 6),
+//                'public' => $public,   // показывать ли маркер
+//                'source' => $src,      // A|B|stop|via
+//                'user_id' => $userId,
+//            ];
+//        };
+//
+//        $push($pts, $this->from_lat, $this->from_lng, true, 'A');
+//
+//        foreach ($this->stops()->get(['lat', 'lng']) as $s) {
+//            $push($pts, $s->lat, $s->lng, true, 'stop');
+//        }
+//
+//        foreach ($this->rideRequests()->where('status', 'accepted')->get(['user_id', 'meta']) as $rr) {
+//            $m = (array)$rr->meta;
+//            foreach (['pickup', 'drop'] as $k) {
+//                if (!empty($m[$k]['lat']) && !empty($m[$k]['lng'])) {
+//                    $owner = $viewerId === (int)$rr->user_id;
+//                    $push($pts, $m[$k]['lat'], $m[$k]['lng'], $owner, 'via', (int)$rr->user_id);
+//                }
+//            }
+//        }
+//
+//        $push($pts, $this->to_lat, $this->to_lng, true, 'B');
+//
+//        // порядок вдоль A→B (по расстоянию от A)
+//        $A_lat = (float)$this->from_lat;
+//        $A_lng = (float)$this->from_lng;
+//        usort($pts, static function ($p, $q) use ($A_lat, $A_lng) {
+//            $dp = ($p['lat'] - $A_lat) ** 2 + ($p['lng'] - $A_lng) ** 2;
+//            $dq = ($q['lat'] - $A_lat) ** 2 + ($q['lng'] - $A_lng) ** 2;
+//            return $dp <=> $dq;
+//        });
+//
+//        // убираем подряд идущие дубликаты
+//        $out = [];
+//        $prev = null;
+//        foreach ($pts as $p) {
+//            if ($prev && abs($prev['lat'] - $p['lat']) < 1e-6 && abs($prev['lng'] - $p['lng']) < 1e-6) continue;
+//            $out[] = $p;
+//            $prev = $p;
+//        }
+//        return collect($out);
+//    }
+//
+//}
+<?php
+//
+//namespace App\Models;
+//
+//use Illuminate\Database\Eloquent\Model;
+//use Illuminate\Database\Eloquent\Relations\BelongsTo;
+//
+//class TripStop extends Model
+//{
+//    protected $fillable = ['trip_id','position','name','addr','lat','lng'];
+//
+//    protected $casts = [
+//        'lat' => 'float',
+//        'lng' => 'float',
+//        'position' => 'int',
+//    ];
+//
+//    public function trip(): BelongsTo
+//    {
+//        return $this->belongsTo(Trip::class);
+//    }
+//}
+
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+class TripStop extends Model
+{
+    protected $fillable = [
+        'trip_id','position','name','addr','lat','lng',
+        'free_km','amd_per_km','max_km',
+    ];
+//    protected $casts = [
+//        'lat'=>'float','lng'=>'float',
+//        'free_km'=>'float','max_km'=>'float', 'position' => 'int',
+//    ];
+    protected $casts = [
+        'lat'=>'float','lng'=>'float',
+        'free_km'=>'float','max_km'=>'float',
+        'amd_per_km'=>'int',
+        'position'=>'int',
+    ];
+
+
+    public function trip(){ return $this->belongsTo(Trip::class); }
+}
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class TripStopRequest extends Model
+{
+    protected $fillable = [
+        'conversation_id','trip_id','requester_id','status',
+        'name','addr','lat','lng',
+        'old_duration_sec','new_duration_sec','old_order','new_order',
+        'decided_by','decided_at','request_message_id','result_message_id',
+    ];
+
+    protected $casts = [
+        'lat' => 'float',
+        'lng' => 'float',
+        'old_order' => 'array',
+        'new_order' => 'array',
+    ];
+
+    public function conversation(){ return $this->belongsTo(Conversation::class); }
+    public function trip(){ return $this->belongsTo(Trip::class); }
+    public function requester(){ return $this->belongsTo(User::class, 'requester_id'); }
+    public function decider(){ return $this->belongsTo(User::class, 'decided_by'); }
+}
+<?php
+
+namespace App\Models;
+
+// use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Notifications\Notifiable;
+use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Laravel\Sanctum\HasApiTokens;
+class User extends Authenticatable implements MustVerifyEmail
+{
+    /** @use HasFactory<\Database\Factories\UserFactory> */
+    use HasFactory, Notifiable,HasApiTokens;
+
+    /**
+     * The attributes that are mass assignable.
+     *
+     * @var list<string>
+     */
+    protected $fillable = [
+        'name','email','password','role','admin_status','avatar_path','rating','number','icon'
+    ];
+
+    /**
+     * The attributes that should be hidden for serialization.
+     *
+     * @var list<string>
+     */
+    protected $hidden = [
+        'password',
+        'remember_token',
+    ];
+
+    /**
+     * Get the attributes that should be cast.
+     *
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return [
+            'email_verified_at' => 'datetime',
+            'password' => 'hashed',
+        ];
+    }
+    public function isAdmin(): bool { return $this->role === 'admin'; }
+    public function isApproved(): bool { return $this->admin_status === 'approved'; }
+
+
+    public function driver() { return $this->hasOne(Driver::class); }
+//    public function companies() { return $this->belongsToMany(Company::class)->withTimestamps(); }
+//    public function ownedCompanies() { return $this->hasMany(Company::class, 'owner_user_id'); }
+    public function companies()
+    {
+        // ЯВНО указываем pivot-таблицу и доп. поле role
+        return $this->belongsToMany(Company::class, 'company_members')
+            ->withTimestamps()
+            ->withPivot('role');
+    }
+
+    public function ownedCompanies()
+    {
+        return $this->hasMany(Company::class, 'owner_user_id');
+    }
+
+    public function roleInCompany(Company $company): ?string
+    {
+        $m = $this->companies()->where('company_id', $company->id)->first();
+        if ($m) return $m->pivot->role;
+        if ($company->owner_user_id === $this->id) return 'owner';
+        return null;
+    }
+}
+<?php
+namespace App\Models;
+use Illuminate\Database\Eloquent\Model;
+
+
+class Vehicle extends Model
+{
+    protected $fillable = ['user_id','brand','model','seats','color','plate','photo_path','status','company_id'];
+    public function user(){ return $this->belongsTo(User::class); }
+    public function trips(){ return $this->hasMany(Trip::class); }
+    public function company()
+    {
+        return $this->belongsTo(\App\Models\Company::class);
+    }
+}
