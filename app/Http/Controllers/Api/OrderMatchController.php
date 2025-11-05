@@ -3,59 +3,52 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\OrdersNearbyForTripRequest;
-use App\Http\Resources\RiderOrderResource;
-use App\Models\RiderOrder;
 use App\Models\Trip;
-use App\Services\GeoMatchService;
-use Carbon\Carbon;
+use App\Models\RiderOrder;
+use App\Services\OrderMatchService;
 use Illuminate\Http\Request;
 
 class OrderMatchController extends Controller
 {
-    public function index(OrdersNearbyForTripRequest $req, Trip $trip, GeoMatchService $geo)
+    public function __construct(private OrderMatchService $svc) {}
+
+    // Подбор заказов под конкретный трип
+    public function index(Trip $trip, Request $r)
     {
-        $this->authorize('view', $trip); // опционально
+        $this->authorizeTrip($trip);
 
-        $mode = $req->string('mode','radius')->value();
-        $radiusKm = (float)$req->input('radius_km', 5);
-        $corridorKm = $req->input('corridor_km');
+        $R = max(1, (int)$r->get('radius_km', 5));
+        $orders = RiderOrder::query()
+            ->where('status','open')
+            ->where(function($w) use($trip){ $w->whereNull('when_from')->orWhere('when_from','<=',$trip->departure_at); })
+            ->where(function($w) use($trip){ $w->whereNull('when_to')->orWhere('when_to','>=',$trip->departure_at); })
+            ->limit(200)->get();
 
-        $timeFrom = $req->filled('time_from') ? Carbon::parse($req->string('time_from')) : null;
-        $timeTo   = $req->filled('time_to')   ? Carbon::parse($req->string('time_to'))   : null;
+        $out = [];
+        foreach ($orders as $o) {
+            $q = $this->svc->matchForOrder($o, $R, null);
+            $hit = $q->where('trips.id',$trip->id)->first();
+            if ($hit) {
+                $out[] = [
+                    'order_id' => (int)$o->id,
+                    'client_user_id' => (int)$o->client_user_id,
+                    'rank_type' => (int)($hit->rank_type ?? 99),
+                    'addon_from_amd' => (int)($hit->addon_from_amd ?? 0),
+                    'addon_to_amd'   => (int)($hit->addon_to_amd ?? 0),
+                    'd_start_km' => $hit->d_start_km !== null ? (float)$hit->d_start_km : null,
+                    'd_end_km'   => $hit->d_end_km   !== null ? (float)$hit->d_end_km   : null,
+                ];
+            }
+        }
 
-        $minSeats = (int)$req->input('min_seats', 1);
-        $maxPrice = $req->input('max_price_amd');
+        return response()->json(['data'=>$out]);
+    }
 
-        // первичный список: открытые, окно времени пересекается, места/цена
-        $base = RiderOrder::query()
-            ->open()
-            ->timeWindowIntersect($timeFrom, $timeTo)
-            ->when($minSeats > 1, fn($q)=>$q->where('seats','>=',$minSeats))
-            ->when(is_numeric($maxPrice), fn($q)=>$q->where(function($w) use ($maxPrice) {
-                $w->whereNull('desired_price_amd')->orWhere('desired_price_amd','<=',(int)$maxPrice);
-            }))
-            ->orderByDesc('id')
-            ->limit(500) // safety cap
-            ->get();
-
-        $filtered = $geo->filterOrdersForTrip($trip, $base, $mode, $radiusKm, $corridorKm);
-
-        // простое ранжирование: по времени начала окна, затем по желаемой цене
-        $sorted = $filtered->sortBy([
-            fn($o) => optional($o->when_from)->timestamp ?? PHP_INT_MAX,
-            fn($o) => $o->desired_price_amd ?? PHP_INT_MAX,
-        ])->values();
-
-        // пагинация на клиенте или резать тут
-        return RiderOrderResource::collection($sorted)->additional([
-            'ok'=>true,
-            'meta'=>[
-                'count'=>$sorted->count(),
-                'mode'=>$mode,
-                'radius_km'=>$radiusKm,
-                'corridor_km'=>$corridorKm ?? ($trip->corridor_km ?? null),
-            ],
-        ]);
+    private function authorizeTrip(Trip $trip): void
+    {
+        $u = request()->user(); abort_if(!$u,401);
+        // владелец трипа или назначенный водитель или админ
+        $ok = $trip->user_id === $u->id || $trip->assigned_driver_id === $u->id || $u->role === 'admin';
+        abort_if(!$ok, 403);
     }
 }

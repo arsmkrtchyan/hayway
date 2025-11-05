@@ -1,5 +1,5 @@
 <?php
-
+// api.php
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthApiController;
 use App\Http\Controllers\Api\{TripApiController,MeApiController,RideRequestApiController};
@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\Driver\RideRequestApiController as DriverReqApiCont
 use App\Http\Controllers\Admin\AmenityController;
 use App\Http\Controllers\Api\TripController as ApiTripController;
 use App\Http\Controllers\Api\Driver\TripAmenitiesApiController;
+use Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful as Stateful;
 use App\Http\Controllers\Api\Company\{
     CompanyApiController,
     MemberApiController,
@@ -37,7 +38,7 @@ use App\Http\Controllers\Api\Driverv2\{
 };
 use App\Http\Controllers\Api\QR\ClientQrController;
 use App\Http\Controllers\Api\QR\DriverQrController;
-use Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful as Stateful;
+
 
 use App\Http\Controllers\Api\CompaniesV2\{
     CompanyApiController as Com2CompanyApiController,
@@ -50,9 +51,10 @@ use App\Http\Controllers\Api\CompaniesV2\{
 use App\Http\Controllers\Api\OrdersController;
 use App\Http\Controllers\Api\OrderMatchController;
 use App\Http\Controllers\Api\OffersController;
+use App\Http\Controllers\Api\NotificationsController as ApiNoti;
 
 
-Route::middleware('auth:sanctum')->prefix('orderoffer')->group(function () {
+Route::middleware([Stateful::class, 'auth:sanctum'])->prefix('orderoffer')->group(function () {
    // Rider Orders
    Route::post('/orders', [OrdersController::class,'store']);         // создать заказ
    Route::get('/orders/my', [OrdersController::class,'my']);          // мои заказы
@@ -69,6 +71,13 @@ Route::middleware('auth:sanctum')->prefix('orderoffer')->group(function () {
    Route::post('/offers/{offer}/reject', [OffersController::class,'reject']); // отклонить
    Route::post('/offers/{offer}/withdraw', [OffersController::class,'withdraw']); // отозвать (водитель)
 });
+
+Route::middleware([Stateful::class, 'auth:sanctum'])->prefix('notifications')->group(function () {
+    Route::get ('/state', [ApiNoti::class,'state']);
+    Route::post('/read',  [ApiNoti::class,'read']);
+    Route::get ('/stream',[ApiNoti::class,'stream']); // SSE
+});
+
 Route::middleware(['auth:sanctum','throttle:60,1'])->group(function () {
    Route::post('/client/ride-requests/{rideRequest}/checkin-ticket', [ClientQrController::class, 'create'])
        ->name('api.client.checkin.create');

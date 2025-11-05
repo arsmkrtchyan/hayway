@@ -49,6 +49,14 @@ class Trip extends Model
             $trip->from_addr_search = self::normalizeForSearch($trip->from_addr);
             $trip->to_addr_search = self::normalizeForSearch($trip->to_addr);
         });
+          static::created(function($trip){
+        if ($trip->status === 'published') event(new \App\Events\TripPublished($trip));
+    });
+    static::updated(function($trip){
+        if ($trip->wasChanged('status') && $trip->status === 'published') {
+            event(new \App\Events\TripPublished($trip));
+        }
+    });
     }
 
     private static function normalizeForSearch(?string $value): ?string

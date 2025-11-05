@@ -1167,7 +1167,7 @@ export default function Explore() {
     const submitOrder = async (draft) => {
         setOrderError(null);
         try {
-            const res = await fetch('/api/orders', {
+            const res = await fetch('api/orderoffer/orders', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1179,10 +1179,10 @@ export default function Explore() {
             });
             const data = await res.json();
             if (!res.ok || data?.ok !== true) throw new Error(data?.message || 'Create failed');
-            
+
             // Show success message
             setOrderSuccess(true);
-            
+
             // Close modal after 1.5 seconds
             setTimeout(() => {
                 setOrderOpen(false);

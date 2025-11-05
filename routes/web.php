@@ -1,4 +1,6 @@
 <?php
+// web.php
+
 use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -20,7 +22,7 @@ use App\Http\Controllers\Company\TripStopsController     as CStops;
 use App\Http\Controllers\Company\RequestController       as CReq;
 use App\Http\Controllers\Company\OwnerDashboardController;
 use App\Http\Controllers\Company\TripStopsController as CTripStops;
-
+use App\Http\Controllers\OffersPageController ;
 
 
 
@@ -50,7 +52,13 @@ use App\Http\Controllers\Client\RideRequestController as ClientRideRequestContro
 use App\Http\Controllers\Client\TripStopRequestsController as ClientTripStopRequestsController;
 use App\Http\Controllers\Driver\TripStopRequestsController as DriverTripStopRequestsController;
 use App\Http\Controllers\Driver\TripSimController;
-Route::middleware('auth:sanctum')->prefix('api')->group(function () {
+
+
+
+
+
+
+Route::middleware('auth')->prefix('api')->group(function () {
     // Rider Orders
     Route::post('/orders', [OrdersController::class,'store']);         // создать заказ
     Route::get('/orders/my', [OrdersController::class,'my']);          // мои заказы
@@ -66,6 +74,9 @@ Route::middleware('auth:sanctum')->prefix('api')->group(function () {
     Route::post('/offers/{offer}/accept', [OffersController::class,'accept']); // принять (обычно клиент)
     Route::post('/offers/{offer}/reject', [OffersController::class,'reject']); // отклонить
     Route::post('/offers/{offer}/withdraw', [OffersController::class,'withdraw']); // отозвать (водитель)
+
+    // Amenities
+//    Route::get('/amenities', [\App\Http\Controllers\Admin\AmenityController::class, 'index']);
 });
 Route::name('driver.')
     ->prefix('driver')
@@ -143,99 +154,6 @@ Route::post('/register/driver', [RoleRegisterController::class, 'storeDriver']);
 
 Route::get('/register/company', [RoleRegisterController::class, 'companyForm'])->name('register.company');
 Route::post('/register/company', [RoleRegisterController::class, 'storeCompany']);
-
-
-// Company area
-//Route::middleware(['auth', 'verified', 'approved'])->group(function () {
-//    Route::get('/company', [MemberController::class, 'index'])->name('company.dashboard');
-//    Route::post('/company/members', [MemberController::class, 'store'])->name('company.members.store');
-//});
-// COMPANY
-//Route::middleware(['auth','verified'])->group(function () {
-//
-//    // Главный экран компании (если у юзера 1 компания — редирект туда)
-//    Route::get('/company', [DashboardController::class, 'index'])->name('company.index');
-//
-//
-//    Route::prefix('/company/{company}')->whereNumber('company')->name('company.')->group(function () {
-//
-//        Route::get('/',               [DashboardController::class, 'show'])->name('show');
-//
-//        // Состав
-//        Route::get('/members',        [MemberController::class, 'index'])->name('members.index');
-//        Route::post('/members',       [MemberController::class, 'store'])->name('members.store');
-//        Route::patch('/members/{user}',[MemberController::class, 'updateRole'])->name('members.updateRole');
-//        Route::delete('/members/{user}',[MemberController::class, 'destroy'])->name('members.destroy');
-//
-//        // Флот
-//        Route::get('/fleet',          [FleetController::class, 'index'])->name('fleet.index');
-//        Route::post('/fleet',         [FleetController::class, 'store'])->name('fleet.store');
-//        Route::delete('/fleet/{vehicle}', [FleetController::class, 'destroy'])->name('fleet.destroy'); // NEW
-//
-//        // Рейсы (компании)
-//        Route::get('/trips',          [CompanyTripController::class, 'index'])->name('trips.index');
-//        Route::post('/trips',         [CompanyTripController::class, 'store'])->name('trips.store');
-//        Route::post('/trips/{trip}/publish',   [CompanyTripController::class,'publish'])->name('trips.publish');
-//        Route::post('/trips/{trip}/archive',   [CompanyTripController::class,'archive'])->name('trips.archive');
-//        Route::post('/trips/{trip}/unarchive', [CompanyTripController::class,'unarchive'])->name('trips.unarchive');
-//
-//        // Очередь заявок
-//        Route::get('/requests',       [RequestController::class, 'index'])->name('requests.index');
-//        Route::post('/requests/{request}/accept', [RequestController::class, 'accept'])->name('requests.accept');
-//        Route::post('/requests/{request}/decline', [RequestController::class, 'decline'])->name('requests.decline');
-//    });
-//});
-
-//company
-//Route::middleware(['auth','verified'])->group(function () {
-//    // Компании
-//
-//
-//
-//        // Company Requests: accept/decline/transfer
-//        Route::post('/companies/{company}/requests/{request}/accept',  [CompanyRequestController::class, 'accept'])->name('companies.requests.accept');
-//        Route::post('/companies/{company}/requests/{request}/decline', [CompanyRequestController::class, 'decline'])->name('companies.requests.decline');
-//        Route::post('/companies/{company}/requests/{request}/transfer', [CompanyRequestController::class, 'transfer'])->name('companies.requests.transfer');
-//
-//    Route::get('/companies', [CompanyController::class, 'index'])->name('companies.index');
-//    Route::get('/companies/create', [CompanyController::class, 'create'])->name('companies.create');
-//    Route::post('/companies', [CompanyController::class, 'store'])->name('companies.store');
-//    Route::get('/companies/{company}', [CompanyController::class, 'show'])->name('companies.show');
-//    Route::get('/companies/{company}/edit', [CompanyController::class, 'edit'])->name('companies.edit');
-//    Route::put('/companies/{company}', [CompanyController::class, 'update'])->name('companies.update');
-//    Route::delete('/companies/{company}', [CompanyController::class, 'destroy'])->name('companies.destroy');
-//
-//    // Участники компании
-//    Route::get('/companies/{company}/members', [CompanyMemberController::class, 'index'])->name('companies.members.index');
-//    Route::post('/companies/{company}/members/new', [CompanyMemberController::class, 'storeNew'])->name('companies.members.storeNew');
-//    Route::post('/companies/{company}/members/attach', [CompanyMemberController::class, 'attachExisting'])->name('companies.members.attach');
-//
-//    Route::put('/companies/{company}/members/{member}/role', [CompanyMemberController::class, 'updateRole'])->name('companies.members.updateRole');
-//    Route::put('/companies/{company}/members/{member}/suspend', [CompanyMemberController::class, 'suspend'])->name('companies.members.suspend');
-//    Route::put('/companies/{company}/members/{member}/activate', [CompanyMemberController::class, 'activate'])->name('companies.members.activate');
-//    Route::delete('/companies/{company}/members/{member}', [CompanyMemberController::class, 'destroy'])->name('companies.members.destroy');
-//    Route::prefix('companies/{company}')->name('company.')->group(function () {
-//    Route::get('/trips',               [CTrip::class, 'index'])->name('trips.index');
-//    Route::post('/trips',              [CTrip::class, 'store'])->name('trips.store');
-//    Route::post('/trips/{trip}/publish',   [CTrip::class, 'publish'])->name('trips.publish');
-//    Route::post('/trips/{trip}/archive',   [CTrip::class, 'archive'])->name('trips.archive');
-//    Route::post('/trips/{trip}/unarchive',[CTrip::class, 'unarchive'])->name('trips.unarchive');
-//
-//    // Trip amenities/stops (company)
-//    Route::get('/trips/{trip}/amenities',    [CAmen::class, 'show'])->name('trips.amenities.show');
-//    Route::post('/trips/{trip}/amenities',   [CAmen::class, 'update'])->name('trips.amenities.update');
-//    Route::post('/trips/{trip}/stops/replace',[CStops::class, 'replace'])->name('trips.stops.replace');
-//
-//    // Requests (company)
-//    Route::get('/requests',                              [CReq::class, 'index'])->name('requests.index');
-//    Route::post('/requests/{request}/accept',            [CReq::class, 'accept'])->name('requests.accept');
-//    Route::post('/requests/{request}/decline',           [CReq::class, 'decline'])->name('requests.decline');
-//    Route::post('/requests/{request}/transfer',          [CReq::class, 'transfer'])->name('requests.transfer');
-//    });
-//});
-
-
-    // Owner dashboard с выбором компании (по умолчанию — первая, где user = owner)
 
 
 
@@ -361,6 +279,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
 Route::get('/demo2', function () {
     return Inertia::render('Demo2');
 })->name('demo2');
+
+// Offers page
+// Route::get('/offers', [\App\Http\Controllers\OffersPageController::class, 'index'])
+//     ->middleware(['auth', 'verified'])
+//     ->name('offers');
+
 
 
 Route::get('/dashboard', function () {

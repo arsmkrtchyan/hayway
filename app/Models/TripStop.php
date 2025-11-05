@@ -46,4 +46,7 @@ class TripStop extends Model
 
 
     public function trip(){ return $this->belongsTo(Trip::class); }
+    // app/Models/Trip.php
+public function matches(){ return $this->hasMany(OrderTripMatch::class); }
+
 }
