@@ -8,7 +8,7 @@ return new class extends Migration {
   public function up(): void {
     Schema::create('order_trip_matches', function (Blueprint $t) {
       $t->id();
-      $t->foreignId('order_id')->constrained()->cascadeOnDelete();
+      $t->foreignId('order_id')->constrained('rider_orders')->cascadeOnDelete();
       $t->foreignId('trip_id')->constrained()->cascadeOnDelete();
       $t->timestamp('notified_at')->nullable();      // когда отправили уведомление
       $t->foreignId('ride_request_id')->nullable();  // если по клику отправили заявку
