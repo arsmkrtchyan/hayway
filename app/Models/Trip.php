@@ -28,6 +28,7 @@ class Trip extends Model
     protected $casts = [
         'pay_methods' => 'array',
         'departure_at' => 'datetime',
+        'driver_finished_at' => 'datetime',
         'type_ab_fixed' => 'bool',
         'type_pax_to_pax' => 'bool',
         'type_pax_to_b' => 'bool',
