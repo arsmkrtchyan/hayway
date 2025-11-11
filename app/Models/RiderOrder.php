@@ -124,8 +124,17 @@ public function user()
 {
     return $this->belongsTo(\App\Models\User::class, 'client_user_id');
 }
+public function rideRequests()
+{
+    return $this->hasMany(RideRequest::class, 'order_id');
+}
+
+
+
+
     public function matches(){ return $this->hasMany(OrderTripMatch::class); }
 public function hasPendingRequest(): bool {
   return $this->rideRequests()->whereIn('status',['pending','accepted'])->exists();
 }
+
 }
