@@ -8,9 +8,11 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Str;
-
+use Illuminate\Database\Eloquent\SoftDeletes;
 class Trip extends Model
 {
+   use SoftDeletes; // <<
+
     protected $fillable = [
         'user_id','vehicle_id',
         'from_lat','from_lng','from_addr',

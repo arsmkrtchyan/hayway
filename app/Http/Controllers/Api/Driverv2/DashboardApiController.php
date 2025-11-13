@@ -20,6 +20,7 @@ class DashboardApiController extends Controller
         // Сколько отзывов водитель получил (ratings по трипам водителя)
         $ratingsReceived = DB::table('ratings')
             ->join('trips','trips.id','=','ratings.trip_id')
+            ->whereNull('trips.deleted_at')       
             ->where('trips.user_id',$uid)
             ->count();
 
@@ -33,6 +34,8 @@ class DashboardApiController extends Controller
         // Профит = сумма RideRequest.price_amd со статусом accepted по завершённым (driver_finished_at) трипам водителя
         $profitThisMonth = DB::table('ride_requests')
             ->join('trips','trips.id','=','ride_requests.trip_id')
+// new
+ ->whereNull('trips.deleted_at')       
             ->where('trips.user_id',$uid)
             ->where('ride_requests.status','accepted')
             ->whereBetween('trips.driver_finished_at', [$curFrom,$curTo])
@@ -40,6 +43,7 @@ class DashboardApiController extends Controller
 
         $profitLastMonth = DB::table('ride_requests')
             ->join('trips','trips.id','=','ride_requests.trip_id')
+             ->whereNull('trips.deleted_at')         
             ->where('trips.user_id',$uid)
             ->where('ride_requests.status','accepted')
             ->whereBetween('trips.driver_finished_at', [$lastStart,$lastEnd])
@@ -47,6 +51,7 @@ class DashboardApiController extends Controller
 
         $profitLifetime = DB::table('ride_requests')
             ->join('trips','trips.id','=','ride_requests.trip_id')
+            ->whereNull('trips.deleted_at')  
             ->where('trips.user_id',$uid)
             ->where('ride_requests.status','accepted')
             ->whereNotNull('trips.driver_finished_at')

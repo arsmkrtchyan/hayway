@@ -296,38 +296,121 @@ class TripApiController extends Controller
     }
 
     /* ===== queries ===== */
-    public function index(Request $r)
-    {
-        $uid = auth()->id();
-        $q = Trip::query()
-            ->where('user_id', $uid)
-            ->with(['vehicle:id,brand,model,plate,color'])
-            ->withCount(['requests as pending_requests_count' => fn($q) => $q->where('status', 'pending')])
-            ->latest('id');
+    // public function index(Request $r)
+    // {
+    //     $uid = auth()->id();
+    //     $q = Trip::query()
+    //         ->where('user_id', $uid)
+    //         ->with(['vehicle:id,brand,model,plate,color'])
+    //         ->withCount(['requests as pending_requests_count' => fn($q) => $q->where('status', 'pending')])
+    //         ->latest('id');
 
-        if ($r->filled('status')) $q->where('status', $r->string('status'));
-        if ($r->filled('driver_state')) $q->where('driver_state', $r->string('driver_state'));
+    //     if ($r->filled('status')) $q->where('status', $r->string('status'));
+    //     if ($r->filled('driver_state')) $q->where('driver_state', $r->string('driver_state'));
 
-        $per = max(1, min(50, (int)$r->input('page.size', 20)));
-        $list = $q->paginate($per)->withQueryString();
+    //     $per = max(1, min(50, (int)$r->input('page.size', 20)));
+    //     $list = $q->paginate($per)->withQueryString();
 
-        $data = $list->getCollection()->map(fn(Trip $t) => [
-            'id' => $t->id, 'from_addr' => $t->from_addr, 'to_addr' => $t->to_addr,
-            'departure_at' => optional($t->departure_at)->toIso8601String(),
-            'seats_total' => $t->seats_total, 'seats_taken' => $t->seats_taken,
-            'price_amd' => $t->price_amd, 'status' => $t->status, 'driver_state' => $t->driver_state,
-            'vehicle' => $t->vehicle?->only(['brand', 'model', 'plate', 'color']),
+    //     $data = $list->getCollection()->map(fn(Trip $t) => [
+    //         'id' => $t->id, 'from_addr' => $t->from_addr, 'to_addr' => $t->to_addr,
+    //         'departure_at' => optional($t->departure_at)->toIso8601String(),
+    //         'seats_total' => $t->seats_total, 'seats_taken' => $t->seats_taken,
+    //         'price_amd' => $t->price_amd, 'status' => $t->status, 'driver_state' => $t->driver_state,
+    //         'vehicle' => $t->vehicle?->only(['brand', 'model', 'plate', 'color']),
+    //         'pending_requests_count' => $t->pending_requests_count ?? 0,
+    //     ])->values();
+
+    //     return response()->json([
+    //         'data' => $data,
+    //         'meta' => [
+    //             'page' => $list->currentPage(), 'per_page' => $list->perPage(),
+    //             'total' => $list->total(), 'last_page' => $list->lastPage(),
+    //         ],
+    //     ]);
+    // }
+    public function index(\Illuminate\Http\Request $r)
+{
+    $uid = auth()->id();
+
+    // Глобальный каталог удобств (1 раз на страницу)
+    $amenityCatalog = \App\Models\AmenityCategory::with([
+        'amenities' => fn($q) => $q
+            ->where('is_active', true)
+            ->orderBy('sort_order')
+            ->orderBy('id'),
+    ])
+        ->where('is_active', true)
+        ->orderBy('sort_order')
+        ->orderBy('id')
+        ->get();
+
+    $q = \App\Models\Trip::query()
+        ->where('user_id', $uid)
+        ->with([
+            'vehicle:id,brand,model,plate,color',
+            'amenities:id', // для selected_amenity_ids без N+1
+        ])
+        ->withCount([
+            'requests as pending_requests_count' => fn($q) => $q->where('status','pending'),
+            'stops', // быстрая сводка по остановкам
+        ])
+        ->latest('id');
+
+    if ($r->filled('status'))       $q->where('status', $r->string('status'));
+    if ($r->filled('driver_state')) $q->where('driver_state', $r->string('driver_state'));
+
+    $per  = max(1, min(50, (int)$r->input('page.size', 20)));
+    $list = $q->paginate($per)->withQueryString();
+
+    $data = $list->getCollection()->map(function (\App\Models\Trip $t) {
+        return [
+            'id'            => $t->id,
+            'from_addr'     => $t->from_addr,
+            'to_addr'       => $t->to_addr,
+            'departure_at'  => optional($t->departure_at)->toIso8601String(),
+            'seats_total'   => $t->seats_total,
+            'seats_taken'   => $t->seats_taken,
+            'price_amd'     => $t->price_amd,
+            'status'        => $t->status,
+            'driver_state'  => $t->driver_state,
+            'vehicle'       => $t->vehicle?->only(['brand','model','plate','color']),
             'pending_requests_count' => $t->pending_requests_count ?? 0,
-        ])->values();
+            'stops_count'            => $t->stops_count ?? 0,
 
-        return response()->json([
-            'data' => $data,
-            'meta' => [
-                'page' => $list->currentPage(), 'per_page' => $list->perPage(),
-                'total' => $list->total(), 'last_page' => $list->lastPage(),
+            // выбранные удобства этой поездки
+            'selected_amenity_ids' => $t->amenities->pluck('id')->values(),
+
+            // если в списке нужны типы и трип-тарифы — уже готовы
+            'type_ab_fixed'   => (bool)$t->type_ab_fixed,
+            'type_pax_to_pax' => (bool)$t->type_pax_to_pax,
+            'type_pax_to_b'   => (bool)$t->type_pax_to_b,
+            'type_a_to_pax'   => (bool)$t->type_a_to_pax,
+            'start_tariff' => [
+                'free_km'    => $t->start_free_km,
+                'amd_per_km' => $t->start_amd_per_km,
+                'max_km'     => $t->start_max_km,
             ],
-        ]);
-    }
+            'end_tariff' => [
+                'free_km'    => $t->end_free_km,
+                'amd_per_km' => $t->end_amd_per_km,
+                'max_km'     => $t->end_max_km,
+            ],
+        ];
+    })->values();
+
+    return response()->json([
+        'data' => $data,
+        'meta' => [
+            'page'      => $list->currentPage(),
+            'per_page'  => $list->perPage(),
+            'total'     => $list->total(),
+            'last_page' => $list->lastPage(),
+        ],
+        // чтобы фронт не делал второй запрос за удобствами
+        'amenity_catalog' => $amenityCatalog,
+    ]);
+}
+
 
     /* ===== create helpers ===== */
     private function normalizeTripTariffs(Trip $trip): void

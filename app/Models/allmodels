@@ -30,20 +30,14 @@ class Amenity extends Model
     }
 }
 <?php
-
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class AmenityCategory extends Model
-{
-    protected $fillable = ['name', 'slug', 'sort_order', 'is_active'];
-
-    public function amenities(): HasMany
-    {
-        return $this->hasMany(Amenity::class);
-    }
+class AppNotification extends Model {
+    protected $table = 'app_notifications';
+    protected $fillable = ['user_id','type','title','body','link','unread'];
+    protected $casts = ['unread'=>'bool'];
 }
 <?php
 
@@ -270,6 +264,76 @@ class Driver extends Model
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+
+class DriverOffer extends Model
+{
+    protected $table = 'driver_offers';
+
+    protected $fillable = [
+        'order_id','trip_id','driver_user_id',
+        'price_amd','seats','status','valid_until','meta',
+    ];
+
+    protected $casts = [
+        'valid_until' => 'datetime',
+        'meta'        => 'array',
+    ];
+
+    public function order()  { return $this->belongsTo(RiderOrder::class,'order_id'); }
+    public function trip()   { return $this->belongsTo(Trip::class,'trip_id'); }
+    public function driver() { return $this->belongsTo(User::class,'driver_user_id'); }
+}
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class DriverOffer extends Model
+{
+    protected $table = 'driver_offers';
+
+    protected $fillable = [
+        'order_id','trip_id','driver_user_id',
+        'price_amd','seats','status','valid_until','meta',
+    ];
+
+    protected $casts = [
+        'valid_until' => 'datetime',
+        'meta'        => 'array',
+    ];
+
+    public function order()  { return $this->belongsTo(RiderOrder::class,'order_id'); }
+    public function trip()   { return $this->belongsTo(Trip::class,'trip_id'); }
+    public function driver() { return $this->belongsTo(User::class,'driver_user_id'); }
+}
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class OrderTripMatch extends Model {
+  protected $fillable = ['order_id','trip_id','notified_at','ride_request_id'];
+  public function order(){ return $this->belongsTo(RiderOrder::class); }
+  public function trip(){ return $this->belongsTo(Trip::class); }
+}
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class OrderTripMatch extends Model {
+  protected $fillable = ['order_id','trip_id','notified_at','ride_request_id'];
+  public function order(){ return $this->belongsTo(RiderOrder::class); }
+  public function trip(){ return $this->belongsTo(Trip::class); }
+}
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Rating extends Model
@@ -297,7 +361,7 @@ class RideRequest extends Model
     protected $fillable = [
         'trip_id','user_id','passenger_name','phone','description',
         'seats','payment','status','meta','decided_by_user_id','decided_at',
-        'is_checked_in','checked_in_at','price_amd','created_by_user_id',
+        'is_checked_in','checked_in_at','price_amd','created_by_user_id','order_id',
     ];
 
     protected $casts = [
@@ -307,6 +371,44 @@ class RideRequest extends Model
         'price_amd' => 'int',
         'decided_at' => 'datetime',
     ];
+public function order()  { return $this->belongsTo(RiderOrder::class, 'order_id'); }
+
+    public function trip(){ return $this->belongsTo(\App\Models\Trip::class); }
+    public function user(){ return $this->belongsTo(\App\Models\User::class); }
+    public function decidedBy()
+    {
+        return $this->belongsTo(\App\Models\User::class, 'decided_by_user_id');
+    }
+    public function creator()
+    {
+        return $this->belongsTo(User::class,'created_by_user_id');
+    }
+}
+<?php
+namespace App\Models;
+use Illuminate\Database\Eloquent\Model;
+
+
+class RideRequest extends Model
+{
+//    protected $fillable = [
+//        'trip_id','user_id','passenger_name','phone','description',
+//        'seats','payment','status','decided_by_user_id','decided_at'
+//    ];
+    protected $fillable = [
+        'trip_id','user_id','passenger_name','phone','description',
+        'seats','payment','status','meta','decided_by_user_id','decided_at',
+        'is_checked_in','checked_in_at','price_amd','created_by_user_id','order_id',
+    ];
+
+    protected $casts = [
+        'meta' => 'array',
+        'is_checked_in' => 'bool',
+        'checked_in_at' => 'datetime',
+        'price_amd' => 'int',
+        'decided_at' => 'datetime',
+    ];
+public function order()  { return $this->belongsTo(RiderOrder::class, 'order_id'); }
 
     public function trip(){ return $this->belongsTo(\App\Models\Trip::class); }
     public function user(){ return $this->belongsTo(\App\Models\User::class); }
@@ -343,6 +445,146 @@ class RideRequestTransfer extends Model
     public function actor(){ return $this->belongsTo(User::class, 'transferred_by_user_id'); }
 }
 <?php
+//
+//namespace App\Models;
+//
+//use Carbon\Carbon;
+//use Illuminate\Database\Eloquent\Builder;
+//use Illuminate\Database\Eloquent\Factories\HasFactory;
+//use Illuminate\Database\Eloquent\Model;
+//
+//class RiderOrder extends Model
+//{
+//    use HasFactory;
+//
+//    protected $table = 'rider_orders';
+//
+//    protected $fillable = [
+//        'client_user_id',
+//        'from_lat','from_lng','from_addr','from_addr_search',
+//        'to_lat','to_lng','to_addr','to_addr_search',
+//        'when_from','when_to','seats','payment',
+//        'desired_price_amd','status','meta',
+//    ];
+//
+//    protected $casts = [
+//        'when_from' => 'datetime',
+//        'when_to'   => 'datetime',
+//        'meta'      => 'array',
+//    ];
+//public function scopeNearPoint(Builder $q, ?float $lat, ?float $lng, float $km): Builder
+//{
+//    if ($lat === null || $lng === null) return $q->whereRaw('1=0');
+//    // Haversine (км)
+//    $expr = "(6371*acos(least(1, cos(radians(?))*cos(radians(from_lat))*cos(radians(from_lng)-radians(?)) + sin(radians(?))*sin(radians(from_lat)))))";
+//    $expr2= "(6371*acos(least(1, cos(radians(?))*cos(radians(to_lat  ))*cos(radians(to_lng  )-radians(?)) + sin(radians(?))*sin(radians(to_lat  )))))";
+//    return $q->where(function($w) use($expr,$expr2,$lat,$lng,$km){
+//        $w->whereRaw("$expr <= ?", [$lat,$lng,$lat,$km])
+//          ->orWhereRaw("$expr2<= ?", [$lat,$lng,$lat,$km]);
+//    });
+//}
+//public function scopeCityLike(Builder $q, string $token): Builder
+//{
+//    $t = '%'.mb_strtolower($token).'%';
+//    return $q->where(function($w) use($t){
+//        $w->whereRaw('LOWER(from_addr_search) LIKE ?', [$t])
+//          ->orWhereRaw('LOWER(to_addr_search)   LIKE ?', [$t]);
+//    });
+//}
+//
+//public function scopeSeatsLe(Builder $q, int $seats): Builder
+//{
+//    return $q->where(function($w) use($seats){
+//        $w->whereNull('seats')->orWhere('seats','<=',$seats);
+//    });
+//}
+//
+//    /* relations */
+//    public function client()
+//    {
+//        return $this->belongsTo(User::class, 'client_user_id');
+//    }
+//
+//    public function offers()
+//    {
+//        return $this->hasMany(DriverOffer::class, 'order_id');
+//    }
+//
+//    /* scopes */
+//    public function scopeOpen(Builder $q): Builder
+//    {
+//        return $q->where('status','open');
+//    }
+//
+//    public function scopeTimeWindowIntersect(Builder $q, ?Carbon $from, ?Carbon $to): Builder
+//    {
+//        if ($from && $to) {
+//            return $q->where(function($w) use ($from,$to) {
+//                $w->whereNull('when_from')->orWhere('when_from','<=',$to);
+//            })->where(function($w) use ($from,$to) {
+//                $w->whereNull('when_to')->orWhere('when_to','>=',$from);
+//            });
+//        }
+//        if ($from) return $q->where(function($w) use ($from) {
+//            $w->whereNull('when_to')->orWhere('when_to','>=',$from);
+//        });
+//        if ($to) return $q->where(function($w) use ($to) {
+//            $w->whereNull('when_from')->orWhere('when_from','<=',$to);
+//        });
+//        return $q;
+//    }
+//}
+
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class RiderOrder extends Model
+{
+    protected $table = 'rider_orders';
+
+    protected $fillable = [
+        'client_user_id',
+        'from_lat', 'from_lng', 'from_addr', 'from_addr_search',
+        'to_lat', 'to_lng', 'to_addr', 'to_addr_search',
+        'when_from', 'when_to', 'seats', 'payment',
+        'desired_price_amd', 'status', 'meta',
+    ];
+
+    protected $casts = [
+        'when_from' => 'datetime',
+        'when_to' => 'datetime',
+        'meta' => 'array',
+        'from_lat' => 'float',
+        'from_lng' => 'float',
+        'to_lat' => 'float',
+        'to_lng' => 'float',
+    ];
+
+    public function client()
+    {
+        return $this->belongsTo(User::class, 'client_user_id');
+    }
+public function user()
+{
+    return $this->belongsTo(\App\Models\User::class, 'client_user_id');
+}
+public function rideRequests()
+{
+    return $this->hasMany(RideRequest::class, 'order_id');
+}
+
+
+
+
+    public function matches(){ return $this->hasMany(OrderTripMatch::class); }
+public function hasPendingRequest(): bool {
+  return $this->rideRequests()->whereIn('status',['pending','accepted'])->exists();
+}
+
+}
+<?php
 
 
 namespace App\Models;
@@ -351,9 +593,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
-
+use Illuminate\Support\Str;
+use Illuminate\Database\Eloquent\SoftDeletes;
 class Trip extends Model
 {
+   use SoftDeletes; // <<
+
     protected $fillable = [
         'user_id','vehicle_id',
         'from_lat','from_lng','from_addr',
@@ -371,6 +616,7 @@ class Trip extends Model
     protected $casts = [
         'pay_methods' => 'array',
         'departure_at' => 'datetime',
+        'driver_finished_at' => 'datetime',
         'type_ab_fixed' => 'bool',
         'type_pax_to_pax' => 'bool',
         'type_pax_to_b' => 'bool',
@@ -380,9 +626,53 @@ class Trip extends Model
         'start_free_km' => 'float','start_max_km'=>'float',
         'end_free_km' => 'float','end_max_km'=>'float',
         'eta_sec' => 'int',
+        'corridor_km'      => 'float',
+        'route_length_km'  => 'float',
     ];
 
     protected $appends = ['amenity_ids'];
+
+    protected static function booted(): void
+    {
+        static::saving(function (Trip $trip) {
+            $trip->from_addr_search = self::normalizeForSearch($trip->from_addr);
+            $trip->to_addr_search = self::normalizeForSearch($trip->to_addr);
+        });
+          static::created(function($trip){
+        if ($trip->status === 'published') event(new \App\Events\TripPublished($trip));
+    });
+    static::updated(function($trip){
+        if ($trip->wasChanged('status') && $trip->status === 'published') {
+            event(new \App\Events\TripPublished($trip));
+        }
+    });
+    }
+
+    private static function normalizeForSearch(?string $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return null;
+        }
+
+        try {
+            $latin = Str::transliterate($trimmed);
+        } catch (\Throwable) {
+            $latin = Str::ascii($trimmed);
+        }
+
+        $normalized = Str::of($latin)
+            ->lower()
+            ->replaceMatches('/[^a-z0-9]+/u', ' ')
+            ->squish()
+            ->value();
+
+        return $normalized === '' ? null : $normalized;
+    }
 
     public function user()
     {
@@ -461,7 +751,10 @@ class Trip extends Model
         if ($this->type_a_to_pax)   return 'A_PAX';
         return 'UNKNOWN';
     }
-
+   public function freeSeats(): int
+    {
+        return max(0, (int)$this->seats_total - (int)$this->seats_taken);
+    }
     public function tariffStart(): array { return [
         'free_km'=>$this->start_free_km,'amd_per_km'=>$this->start_amd_per_km,'max_km'=>$this->start_max_km
     ];}
@@ -775,6 +1068,9 @@ class TripStop extends Model
 
 
     public function trip(){ return $this->belongsTo(Trip::class); }
+    // app/Models/Trip.php
+public function matches(){ return $this->hasMany(OrderTripMatch::class); }
+
 }
 <?php
 

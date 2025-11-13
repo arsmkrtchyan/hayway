@@ -36,8 +36,8 @@ export default function DriverLayout({children, current = "my-trips"}) {
 
         <div
             className="min-h-screen bg-[radial-gradient(70%_50%_at_50%_-10%,#ecfdf5,transparent),linear-gradient(to_bottom_right,#f8fafc,#ecfeff)]">
-            <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
-                <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
+            <header className="sticky top-0 z-[1000] border-b border-slate-200 bg-white/90 backdrop-blur">
+                <div className="mx-auto flex max-w-8xl items-center justify-between px-4 py-3">
                     <Link href="/" className="flex items-center gap-2">
                         <span
                             className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-emerald-500 to-cyan-500 font-bold text-white">TX</span>
@@ -63,7 +63,7 @@ export default function DriverLayout({children, current = "my-trips"}) {
                 </div>
             </header>
 
-            <main className="mx-auto max-w-7xl px-4 py-6">{children}</main>
+            <main className="mx-auto max-w-8xl px-4 py-6">{children}</main>
 
             <footer className="border-t border-slate-200 py-2 text-center text-xs text-slate-600">
                 © {new Date().getFullYear()} Taxi Platform · Վարորդի վահանակ
@@ -80,4 +80,3 @@ export default function DriverLayout({children, current = "my-trips"}) {
         </div>
     );
 }
-

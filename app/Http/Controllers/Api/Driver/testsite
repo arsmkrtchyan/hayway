@@ -22,11 +22,8 @@ class RideRequestApiController extends Controller
         $this->ensureRole($r);
 
         $q = RideRequest::query()
-            ->with([
-                // сразу подгружаем флаги завершения поездки
-                'trip:id,from_addr,to_addr,departure_at,user_id,driver_finished_at,driver_state',
-            ])
-            ->whereHas('trip', fn($qq) => $qq->where('user_id', $r->user()->id))
+            ->with(['trip:id,from_addr,to_addr,departure_at,user_id'])
+            ->whereHas('trip', fn($qq)=>$qq->where('user_id', $r->user()->id))
             ->latest();
 
         if ($r->filled('status')) {
@@ -34,7 +31,7 @@ class RideRequestApiController extends Controller
         }
 
         $items = $q->paginate($r->integer('per_page', 30))
-            ->through(fn (RideRequest $x) => $this->map($x));
+            ->through(fn(RideRequest $x) => $this->map($x));
 
         return response()->json([
             'data'  => $items->items(),
@@ -58,14 +55,10 @@ class RideRequestApiController extends Controller
         $this->ensureRole($r);
         abort_unless($trip->user_id === $r->user()->id, 403);
 
-        $items = RideRequest::query()
-            ->with([
-                'trip:id,from_addr,to_addr,departure_at,user_id,driver_finished_at,driver_state',
-            ])
-            ->where('trip_id', $trip->id)
+        $items = RideRequest::where('trip_id', $trip->id)
             ->latest()
             ->paginate($r->integer('per_page', 50))
-            ->through(fn (RideRequest $x) => $this->map($x));
+            ->through(fn(RideRequest $x)=>$this->map($x));
 
         return response()->json([
             'data'  => $items->items(),
@@ -143,7 +136,7 @@ class RideRequestApiController extends Controller
         abort_unless($trip->user_id === $r->user()->id, 403);
 
         if (!app()->isLocal()) {
-            return response()->json(['message' => 'disabled_in_prod'], 403);
+            return response()->json(['message'=>'disabled_in_prod'], 403);
         }
 
         $x = RideRequest::create([
@@ -156,45 +149,28 @@ class RideRequestApiController extends Controller
             'user_id' => null,
         ]);
 
-        return response()->json(['id' => $x->id, 'status' => $x->status], 201);
+        return response()->json(['id'=>$x->id, 'status'=>$x->status], 201);
     }
 
     private function map(RideRequest $x): array
     {
-        $trip = $x->relationLoaded('trip') ? $x->trip : $x->trip;
-
-        // Условие:
-        // 1) у trip установлен driver_finished_at
-        // 2) driver_state == 'done'
-        // 3) сам ride_request.status == 'accepted'
-        // никакие другие статусы (de_request и т.п.) не учитываем
-        $isDone = $trip
-            && !is_null($trip->driver_finished_at)
-            && $trip->driver_state === 'done'
-            && $x->status === 'accepted';
-
         return [
             'id' => $x->id,
             'status' => $x->status,
             'payment'=> $x->payment,
-            'seats'  => (int) $x->seats,
+            'seats'  => (int)$x->seats,
             'passenger_name' => $x->passenger_name,
             'phone'          => $x->phone,
-            'description'    => $x->description,
+            'description'    => $x->description, // ← добавили
             'decided_by_user_id' => $x->decided_by_user_id,
             'decided_at'         => optional($x->decided_at)->toIso8601String(),
-
-            // флаг по ride_request, который ты можешь использовать на фронте
-            'is_done' => $isDone,
-
-            'trip' => $trip ? [
-                'id'              => $trip->id,
-                'from_addr'       => $trip->from_addr,
-                'to_addr'         => $trip->to_addr,
-                'departure_at'    => optional($trip->departure_at)->toIso8601String(),
-                'driver_finished_at' => optional($trip->driver_finished_at)->toIso8601String(),
-                'driver_state'      => $trip->driver_state,
+            'trip' => $x->relationLoaded('trip') && $x->trip ? [
+                'id' => $x->trip->id,
+                'from_addr' => $x->trip->from_addr,
+                'to_addr'   => $x->trip->to_addr,
+                'departure_at' => optional($x->trip->departure_at)->toIso8601String(),
             ] : null,
         ];
     }
+
 }
