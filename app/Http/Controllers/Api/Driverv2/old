@@ -13,28 +13,29 @@ class DashboardApiController extends Controller
     {
         $uid = auth()->id();
 
-        // Машина и рейтинг из users.rating
+        // База: авто и рейтинг из users.rating
         $vehicle     = Vehicle::where('user_id', $uid)->first();
         $userRating  = (float) DB::table('users')->where('id', $uid)->value('rating');
 
-        // Сколько отзывов получил водитель (ratings по трипам водителя)
+        // Сколько отзывов водитель получил (ratings по трипам водителя)
         $ratingsReceived = DB::table('ratings')
             ->join('trips','trips.id','=','ratings.trip_id')
-            ->whereNull('trips.deleted_at')
+            ->whereNull('trips.deleted_at')       
             ->where('trips.user_id',$uid)
             ->count();
 
-        // Диапазоны времени для остальных метрик
+        // Диапазоны времени
         $now        = Carbon::now();
         $curFrom    = (clone $now)->startOfMonth();
         $curTo      = (clone $now)->endOfMonth();
         $lastStart  = (clone $now)->subMonthNoOverflow()->startOfMonth();
         $lastEnd    = (clone $lastStart)->endOfMonth();
 
-        // Профит = сумма RideRequest.price_amd со статусом accepted по завершённым (driver_finished_at) трипам
+        // Профит = сумма RideRequest.price_amd со статусом accepted по завершённым (driver_finished_at) трипам водителя
         $profitThisMonth = DB::table('ride_requests')
             ->join('trips','trips.id','=','ride_requests.trip_id')
-            ->whereNull('trips.deleted_at')
+// new
+ ->whereNull('trips.deleted_at')       
             ->where('trips.user_id',$uid)
             ->where('ride_requests.status','accepted')
             ->whereBetween('trips.driver_finished_at', [$curFrom,$curTo])
@@ -42,7 +43,7 @@ class DashboardApiController extends Controller
 
         $profitLastMonth = DB::table('ride_requests')
             ->join('trips','trips.id','=','ride_requests.trip_id')
-            ->whereNull('trips.deleted_at')
+             ->whereNull('trips.deleted_at')         
             ->where('trips.user_id',$uid)
             ->where('ride_requests.status','accepted')
             ->whereBetween('trips.driver_finished_at', [$lastStart,$lastEnd])
@@ -50,39 +51,26 @@ class DashboardApiController extends Controller
 
         $profitLifetime = DB::table('ride_requests')
             ->join('trips','trips.id','=','ride_requests.trip_id')
-            ->whereNull('trips.deleted_at')
+            ->whereNull('trips.deleted_at')  
             ->where('trips.user_id',$uid)
             ->where('ride_requests.status','accepted')
             ->whereNotNull('trips.driver_finished_at')
             ->sum('ride_requests.price_amd');
 
-        // Месячные трипы (как раньше)
+        // Месячные трипы
         $tripsCreatedMonth   = Trip::where('user_id',$uid)->whereBetween('created_at',      [$curFrom,$curTo])->count();
         $tripsDepartingMonth = Trip::where('user_id',$uid)->whereBetween('departure_at',    [$curFrom,$curTo])->count();
         $tripsFinishedMonth  = Trip::where('user_id',$uid)->whereBetween('driver_finished_at',[$curFrom,$curTo])->count();
 
-        // Месячные заявки по статусам — только для accepted/rejected/cancelled оставляем месячную логику
+        // Месячные заявки по статусам
         $monthReqByStatus = RideRequest::whereHas('trip', fn($q)=>$q->where('user_id',$uid))
             ->whereBetween('created_at', [$curFrom,$curTo])
-            ->selectRaw('status, COUNT(*) c')
-            ->groupBy('status')
+            ->selectRaw('status, COUNT(*) c')->groupBy('status')
             ->pluck('c','status');
 
-        /**
-         * Текущее количество pending по ДОСТУПНЫМ трипам:
-         * - trip.user_id = водитель
-         * - trip не удалён
-         * - trip.driver_finished_at IS NULL (рейс ещё не завершён)
-         * - trip.status НЕ 'draft' и НЕ 'archived'  (trip_state не черновик и не архив)
-         */
-        $pendingActiveNow = RideRequest::where('status', 'pending')
-            ->whereHas('trip', function ($q) use ($uid) {
-                $q->where('user_id', $uid)
-                  ->whereNull('deleted_at')
-                  ->whereNull('driver_finished_at')
-                  ->whereNotIn('status', ['draft', 'archived']);
-            })
-            ->count();
+        // Сейчас в ожидании (все времени)
+        $pendingNow = RideRequest::whereHas('trip', fn($q)=>$q->where('user_id',$uid))
+            ->where('status','pending')->count();
 
         // Всего трипов за всё время
         $tripsTotalAllTime = Trip::where('user_id',$uid)->count();
@@ -90,10 +78,7 @@ class DashboardApiController extends Controller
         // Все завершённые трипы + выручка по accepted-заявкам
         $finishedTrips = Trip::where('user_id',$uid)
             ->whereNotNull('driver_finished_at')
-            ->withSum(
-                ['requests as revenue_amd' => fn($q)=>$q->where('status','accepted')],
-                'price_amd'
-            )
+            ->withSum(['requests as revenue_amd' => fn($q)=>$q->where('status','accepted')], 'price_amd')
             ->orderByDesc('driver_finished_at')
             ->get([
                 'id','from_addr','to_addr','departure_at','driver_finished_at',
@@ -119,24 +104,21 @@ class DashboardApiController extends Controller
                             'finished'  => (int)$tripsFinishedMonth,
                         ],
                         'ride_requests' => [
-                            // ТЕПЕРЬ: pending = текущее количество pending по доступным трипам (НЕ помесячно)
-                            'pending'   => (int)$pendingActiveNow,
-                            // Остальные — по месяцу, как раньше
+                            'pending'   => (int)($monthReqByStatus['pending']   ?? 0),
                             'accepted'  => (int)($monthReqByStatus['accepted']  ?? 0),
                             'rejected'  => (int)($monthReqByStatus['rejected']  ?? 0),
                             'cancelled' => (int)($monthReqByStatus['cancelled'] ?? 0),
                         ],
                         'rating' => [
-                            'user_rating'            => round($userRating, 2),
-                            'ratings_received_count' => (int)$ratingsReceived,
+                            'user_rating'            => round($userRating, 2), // из users.rating
+                            'ratings_received_count' => (int)$ratingsReceived, // сколько записей в ratings по user_id водителя (через его трипы)
                         ],
                     ],
                     'lifetime' => [
                         'trips_total' => (int)$tripsTotalAllTime,
                     ],
                     'now' => [
-                        // То же число для блока "сейчас"
-                        'pending_requests' => (int)$pendingActiveNow,
+                        'pending_requests' => (int)$pendingNow,
                     ],
                 ],
 

@@ -14,11 +14,21 @@ class TripDetailController extends Controller
         $me = $request->user();
         abort_unless($trip->assigned_driver_id === $me->id, 403);
 
-        $trip->loadMissing([
-            'company:id,name,rating',
-            'vehicle:id,brand,model,color,plate',
-            'stops:id,trip_id,position,name,addr,lat,lng',
-        ]);
+// nor block
+$me->markNotificationsSeen();
+  $trip->loadMissing([
+        'company:id,name,rating',
+        'vehicle:id,brand,model,color,plate',
+        'stops:id,trip_id,position,name,addr,lat,lng',
+    ]);
+
+// nor blocki verj
+
+        // $trip->loadMissing([
+        //     'company:id,name,rating',
+        //     'vehicle:id,brand,model,color,plate',
+        //     'stops:id,trip_id,position,name,addr,lat,lng',
+        // ]);
 
         // только принятые
         $accepted = $trip->rideRequests()

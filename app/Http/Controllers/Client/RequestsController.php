@@ -8,40 +8,46 @@ use Inertia\Inertia;
 
 class RequestsController extends Controller
 {
-    public function index()
-    {
-        $requests = RideRequest::query()
-            ->with([
-                // важно отдать driver_finished_at
-                'trip:id,from_addr,to_addr,departure_at,price_amd,driver_finished_at,user_id',
-                'trip.driver:id,name'
-            ])
-            ->where('user_id', auth()->id())
-            ->latest()
-            ->paginate(20)
-            ->through(function ($r) {
-                return [
-                    'id'             => (int)$r->id,
-                    'status'         => (string)$r->status,
-                    'payment'        => (string)$r->payment,
-                    'seats'          => (int)$r->seats,
-                    'passenger_name' => (string)$r->passenger_name,
-                    'description'    => (string)($r->description ?? ''),
-                    'phone'          => (string)$r->phone,
-                    'trip' => [
-                        'id'                 => (int)$r->trip->id,
-                        'from_addr'          => (string)$r->trip->from_addr,
-                        'to_addr'            => (string)$r->trip->to_addr,
-                        'departure_at'       => optional($r->trip->departure_at)->toIso8601String(),
-                        'price_amd'          => (int)$r->trip->price_amd,
-                        'driver'             => $r->trip->driver->name ?? 'Վարորդ',
-                        'driver_finished_at' => optional($r->trip->driver_finished_at)->toIso8601String(),
-                    ],
-                ];
-            });
+  public function index()
+{
+    $requests = RideRequest::query()
+        ->with([
+            // если нужны и soft-deleted поездки:
+            'trip' => fn($q) => $q
+                ->withTrashed()   // убери, если не хочешь видеть удалённые trips
+                ->select('id','from_addr','to_addr','departure_at','price_amd','driver_finished_at','user_id'),
+            'trip.driver:id,name',
+        ])
+        ->where('user_id', auth()->id())
+        ->latest()
+        ->paginate(20)
+        ->through(function (RideRequest $r) {
 
-        return Inertia::render('Client/MyRequests', ['items' => $requests]);
-    }
+            $trip = $r->trip; // может быть null
+
+            return [
+                'id'             => (int) $r->id,
+                'status'         => (string) $r->status,
+                'payment'        => (string) $r->payment,
+                'seats'          => (int) $r->seats,
+                'passenger_name' => (string) $r->passenger_name,
+                'description'    => (string) ($r->description ?? ''),
+                'phone'          => (string) $r->phone,
+
+                'trip' => $trip ? [
+                    'id'                 => (int) $trip->id,
+                    'from_addr'          => (string) $trip->from_addr,
+                    'to_addr'            => (string) $trip->to_addr,
+                    'departure_at'       => optional($trip->departure_at)->toIso8601String(),
+                    'price_amd'          => (int) $trip->price_amd,
+                    'driver'             => $trip->driver->name ?? 'Վարորդ',
+                    'driver_finished_at' => optional($trip->driver_finished_at)->toIso8601String(),
+                ] : null,
+            ];
+        });
+
+    return Inertia::render('Client/MyRequests', ['items' => $requests]);
+}
 
     public function destroy($id)
     {

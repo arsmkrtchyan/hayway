@@ -108,7 +108,7 @@ function mkDivIcon(color, label = null) {
 /* ===================== UI ======================= */
 function Section({ title, subtitle, children }) {
   return (
-    <div className="isolate rounded-3xl border border-slate-200 bg-white p-8 xl:p-9 shadow-xl">
+    <div className="rounded-3xl border border-slate-200 bg-white p-8 xl:p-9 shadow-xl">
       <div className="mb-5">
         <div className="text-2xl font-extrabold text-slate-900">{title}</div>
         {subtitle && <div className="mt-0.5 text-base text-slate-600">{subtitle}</div>}
@@ -266,73 +266,71 @@ function RouteMap({ from, to, stops, setFrom, setTo, setStops, mode, setMode }) 
   }, [JSON.stringify(pts)]);
 
   return (
-    <div className="relative z-0 rounded-2xl ring-1 ring-slate-200 overflow-hidden">
-      <MapContainer center={[40.1792, 44.4991]} zoom={8} className="h-[680px] w-full">
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+    <MapContainer center={[40.1792, 44.4991]} zoom={8} className="h-[620px] w-full rounded-2xl overflow-hidden">
+      <TileLayer
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+      />
+      <ClickCapture mode={mode} setMode={setMode} setFrom={setFrom} setTo={setTo} addStop={addStop} />
+
+      {routeCoords.length > 1 && <Polyline positions={routeCoords.map((p) => [p.lat, p.lng])} weight={7} />}
+      {routeCoords.length === 0 && fallbackCoords.length > 1 && (
+        <Polyline positions={fallbackCoords.map((p) => [p.lat, p.lng])} weight={5} />
+      )}
+
+      {Number.isFinite(from?.lng) && Number.isFinite(from?.lat) && (
+        <Marker
+          position={[from.lat, from.lng]}
+          draggable={true}
+          icon={mkDivIcon("#16a34a", "Սկիզբ")}
+          eventHandlers={{
+            dragend: async (e) => {
+              const { lat, lng } = e.target.getLatLng();
+              setFrom((f) => ({ ...f, lat, lng }));
+              const label = await reverseGeocodeNominatim(lng, lat);
+              setFrom((f) => ({ ...f, addr: label || f.addr }));
+            },
+          }}
         />
-        <ClickCapture mode={mode} setMode={setMode} setFrom={setFrom} setTo={setTo} addStop={addStop} />
+      )}
 
-        {routeCoords.length > 1 && <Polyline positions={routeCoords.map((p) => [p.lat, p.lng])} weight={7} />} 
-        {routeCoords.length === 0 && fallbackCoords.length > 1 && (
-          <Polyline positions={fallbackCoords.map((p) => [p.lat, p.lng])} weight={5} />
-        )}
-
-        {Number.isFinite(from?.lng) && Number.isFinite(from?.lat) && (
+      {(stops || []).map((s, i) =>
+        Number.isFinite(s.lng) && Number.isFinite(s.lat) ? (
           <Marker
-            position={[from.lat, from.lng]}
+            key={i}
+            position={[s.lat, s.lng]}
             draggable={true}
-            icon={mkDivIcon("#16a34a", "Սկիզբ")}
+            icon={mkDivIcon("#22c55e", String(i + 1))}
             eventHandlers={{
               dragend: async (e) => {
                 const { lat, lng } = e.target.getLatLng();
-                setFrom((f) => ({ ...f, lat, lng }));
+                setStops((arr) => arr.map((x, idx) => (idx === i ? { ...x, lat, lng } : x)));
                 const label = await reverseGeocodeNominatim(lng, lat);
-                setFrom((f) => ({ ...f, addr: label || f.addr }));
+                setStops((arr) => arr.map((x, idx) => (idx === i ? { ...x, addr: label || x.addr } : x)));
               },
             }}
           />
-        )}
+        ) : null
+      )}
 
-        {(stops || []).map((s, i) =>
-          Number.isFinite(s.lng) && Number.isFinite(s.lat) ? (
-            <Marker
-              key={i}
-              position={[s.lat, s.lng]}
-              draggable={true}
-              icon={mkDivIcon("#22c55e", String(i + 1))}
-              eventHandlers={{
-                dragend: async (e) => {
-                  const { lat, lng } = e.target.getLatLng();
-                  setStops((arr) => arr.map((x, idx) => (idx === i ? { ...x, lat, lng } : x)));
-                  const label = await reverseGeocodeNominatim(lng, lat);
-                  setStops((arr) => arr.map((x, idx) => (idx === i ? { ...x, addr: label || x.addr } : x)));
-                },
-              }}
-            />
-          ) : null
-        )}
+      {Number.isFinite(to?.lng) && Number.isFinite(to?.lat) && (
+        <Marker
+          position={[to.lat, to.lng]}
+          draggable={true}
+          icon={mkDivIcon("#ef4444", "Վերջ")}
+          eventHandlers={{
+            dragend: async (e) => {
+              const { lat, lng } = e.target.getLatLng();
+              setTo((t) => ({ ...t, lat, lng }));
+              const label = await reverseGeocodeNominatim(lng, lat);
+              setTo((t) => ({ ...t, addr: label || t.addr }));
+            },
+          }}
+        />
+      )}
 
-        {Number.isFinite(to?.lng) && Number.isFinite(to?.lat) && (
-          <Marker
-            position={[to.lat, to.lng]}
-            draggable={true}
-            icon={mkDivIcon("#ef4444", "Վերջ")}
-            eventHandlers={{
-              dragend: async (e) => {
-                const { lat, lng } = e.target.getLatLng();
-                setTo((t) => ({ ...t, lat, lng }));
-                const label = await reverseGeocodeNominatim(lng, lat);
-                setTo((t) => ({ ...t, addr: label || t.addr }));
-              },
-            }}
-          />
-        )}
-
-        <FitTo pts={pts} routeCoords={routeCoords} />
-      </MapContainer>
-    </div>
+      <FitTo pts={pts} routeCoords={routeCoords} />
+    </MapContainer>
   );
 }
 
@@ -414,7 +412,7 @@ function AddressInput({ label, value, onChange, onPick, placeholder = "Գրեք 
       </label>
 
       {open && (
-        <div className="absolute z-[300] mt-2 w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+        <div className="absolute z-[100] mt-2 w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
           {!busy && items.length === 0 && (
             <div className="px-4 py-3 text-sm text-slate-500">Ոչ մի առաջարկ</div>
           )}
@@ -475,9 +473,9 @@ export default function MakeTrip({ vehicle, amenityCategories }) {
     description: "",
     // տեսակի դրոշներ
     type_ab_fixed: true,
-    type_addr_addr: false,
-    type_fixed_start_flexible_end: false,
-    type_flexible_start_fixed_end: false,
+    type_pax_to_pax: false,
+    type_pax_to_b: false,
+    type_a_to_pax: false,
     // հատվածային գներ
     start_free_km: "", start_amd_per_km: "", start_max_km: "",
     end_free_km: "",   end_amd_per_km: "",   end_max_km: "",
@@ -547,14 +545,14 @@ export default function MakeTrip({ vehicle, amenityCategories }) {
     <DriverLayout current="make-trip">
       <div
         ref={wrapRef}
-        className="mx-auto w-full max-w-[1760px] px-2 md:px-4 py-4 lg:py-6 text-[17px] md:text-[18px] leading-relaxed"
+        className="mx-auto w-full max-w-[1600px] 2xl:max-w-[1760px] px-2 md:px-4 py-4 lg:py-6 text-[17px] md:text-[18px] leading-relaxed"
       >
         <div className="mb-6">
           <div className="text-4xl font-extrabold text-slate-900">Ստեղծել ուղևորություն</div>
           <div className="mt-1 text-base text-slate-600">Լայն լեյաութ, պարզ վիզարդ</div>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-[440px_1fr]">
+        <div className="grid gap-6 lg:grid-cols-[400px_1fr]">
           {/* Սայդբար-վիզարդ — ձախ */}
           <aside className="lg:sticky lg:top-4 h-max">
             <Stepper steps={steps} activeIdx={idx} setIdx={go} />
@@ -566,7 +564,7 @@ export default function MakeTrip({ vehicle, amenityCategories }) {
               {idx === 0 && (
                 <motion.div key="step-0" initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -40 }}>
                   <Section title="Քայլ 1. Սկիզբ և Վերջ" subtitle="Մուտքագրեք հասցեները կամ սեղմեք քարտեզի վրա">
-                    <div className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
+                    <div className="grid gap-6 xl:grid-cols-[1.4fr_1fr]">
                       <form className="space-y-5">
                         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                           <AddressInput
@@ -614,9 +612,15 @@ export default function MakeTrip({ vehicle, amenityCategories }) {
                       </div>
                     </div>
 
-                    {/* Action bar ниже сетки, отделён линией, без налезания на карту */}
-                    <div className="mt-8 pt-5 border-t border-slate-200 flex justify-end">
-                      <button className={BTN.primary} disabled={!canNext} onClick={() => go(idx + 1)}>Հաջորդ</button>
+                    <div className="mt-8 border-t border-slate-100 pt-6 flex justify-end">
+                      <button
+                        type="button"
+                        className={BTN.primary}
+                        disabled={!canNext}
+                        onClick={() => go(idx + 1)}
+                      >
+                        Հաջորդ
+                      </button>
                     </div>
                   </Section>
                 </motion.div>
@@ -625,7 +629,7 @@ export default function MakeTrip({ vehicle, amenityCategories }) {
               {idx === 1 && (
                 <motion.div key="step-1" initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -40 }}>
                   <Section title="Քայլ 2. Կանգառներ" subtitle="Ընտրովի քայլ — ավելացրեք միջանկյալ կանգառներ">
-                    <div className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
+                    <div className="grid gap-6 xl:grid-cols-[1.4fr_1fr]">
                       <div className="space-y-5">
                         <AddStop onAdd={async (q) => {
                           if (!q?.trim()) return;
@@ -642,9 +646,13 @@ export default function MakeTrip({ vehicle, amenityCategories }) {
                       />
                     </div>
 
-                    <div className="mt-8 pt-5 border-t border-slate-200 flex justify-between">
-                      <button className={BTN.secondary} onClick={() => go(idx - 1)}>Նախորդ</button>
-                      <button className={BTN.primary} onClick={() => go(idx + 1)}>Հաջորդ</button>
+                    <div className="mt-7 flex flex-wrap items-center justify-between gap-3">
+                      <button type="button" className={BTN.secondary} onClick={() => go(idx - 1)}>
+                        Նախորդ
+                      </button>
+                      <button type="button" className={BTN.primary} onClick={() => go(idx + 1)}>
+                        Հաջորդ
+                      </button>
                     </div>
                   </Section>
                 </motion.div>
@@ -678,9 +686,18 @@ export default function MakeTrip({ vehicle, amenityCategories }) {
                       <PayMethods value={data.pay_methods} onChange={(arr) => setData("pay_methods", arr)} />
                     </div>
 
-                    <div className="mt-8 pt-5 border-t border-slate-200 flex justify-between">
-                      <button className={BTN.secondary} onClick={() => go(idx - 1)}>Նախորդ</button>
-                      <button className={BTN.primary} disabled={!canNext} onClick={() => go(idx + 1)}>Հաջորդ</button>
+                    <div className="mt-7 flex flex-wrap items-center justify-between gap-3">
+                      <button type="button" className={BTN.secondary} onClick={() => go(idx - 1)}>
+                        Նախորդ
+                      </button>
+                      <button
+                        type="button"
+                        className={BTN.primary}
+                        disabled={!canNext}
+                        onClick={() => go(idx + 1)}
+                      >
+                        Հաջորդ
+                      </button>
                     </div>
                   </Section>
                 </motion.div>
@@ -697,20 +714,20 @@ export default function MakeTrip({ vehicle, amenityCategories }) {
                         desc="Մեկնարկն ու վերջն ամրագրած են։"
                       />
                       <TypeCard
-                        active={data.type_addr_addr}
-                        onClick={() => pickType("type_addr_addr", setData)}
+                        active={data.type_pax_to_pax}
+                        onClick={() => pickType("type_pax_to_pax", setData)}
                         title="Հասցե → Հասցե"
                         desc="Վերցնում և թողնում՝ կոնկրետ հասցեներով։"
                       />
                       <TypeCard
-                        active={data.type_fixed_start_flexible_end}
-                        onClick={() => pickType("type_fixed_start_flexible_end", setData)}
+                        active={data.type_a_to_pax}
+                        onClick={() => pickType("type_a_to_pax", setData)}
                         title="Ֆիքս մեկնարկ → Ազատ վերջ"
                         desc="Մեկնարկը ամրագրված է, վերջը՝ ըստ ընտրության։"
                       />
                       <TypeCard
-                        active={data.type_flexible_start_fixed_end}
-                        onClick={() => pickType("type_flexible_start_fixed_end", setData)}
+                        active={data.type_pax_to_b}
+                        onClick={() => pickType("type_pax_to_b", setData)}
                         title="Ազատ մեկնարկ → Ֆիքս վերջ"
                         desc="Վերջը ամրագրված է, մեկնարկը՝ ըստ ընտրության։"
                       />
@@ -718,7 +735,7 @@ export default function MakeTrip({ vehicle, amenityCategories }) {
 
                     <div className="mt-5 grid gap-5 lg:grid-cols-2">
                       <TariffCard
-                        show={data.type_ab_fixed || data.type_fixed_start_flexible_end}
+                        show={data.type_ab_fixed || data.type_a_to_pax}
                         side="A (սկիզբ)"
                         values={{ free_km: data.start_free_km, amd_per_km: data.start_amd_per_km, max_km: data.start_max_km }}
                         setValues={(v) => {
@@ -729,7 +746,7 @@ export default function MakeTrip({ vehicle, amenityCategories }) {
                         errors={{ free_km: errors.start_free_km, amd_per_km: errors.start_amd_per_km, max_km: errors.start_max_km }}
                       />
                       <TariffCard
-                        show={data.type_ab_fixed || data.type_flexible_start_fixed_end}
+                        show={data.type_ab_fixed || data.type_pax_to_b}
                         side="B (վերջ)"
                         values={{ free_km: data.end_free_km, amd_per_km: data.end_amd_per_km, max_km: data.end_max_km }}
                         setValues={(v) => {
@@ -741,9 +758,13 @@ export default function MakeTrip({ vehicle, amenityCategories }) {
                       />
                     </div>
 
-                    <div className="mt-8 pt-5 border-t border-slate-200 flex justify-between">
-                      <button className={BTN.secondary} onClick={() => go(idx - 1)}>Նախորդ</button>
-                      <button className={BTN.primary} onClick={() => go(idx + 1)}>Հաջորդ</button>
+                    <div className="mt-7 flex flex-wrap items-center justify-between gap-3">
+                      <button type="button" className={BTN.secondary} onClick={() => go(idx - 1)}>
+                        Նախորդ
+                      </button>
+                      <button type="button" className={BTN.primary} onClick={() => go(idx + 1)}>
+                        Հաջորդ
+                      </button>
                     </div>
                   </Section>
                 </motion.div>
@@ -752,7 +773,7 @@ export default function MakeTrip({ vehicle, amenityCategories }) {
               {idx === 4 && (
                 <motion.div key="step-4" initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -40 }}>
                   <Section title="Քայլ 5. Ամփոփում և հրապարակում" subtitle="Լրացրեք լրացուցիչ դաշտերը և պահպանեք">
-                    <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.5fr_1fr]">
+                    <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.4fr_1fr]">
                       <div className="space-y-5">
                         <TextArea
                           label="Նկարագրություն (ոչ պարտադիր)"
@@ -781,11 +802,17 @@ export default function MakeTrip({ vehicle, amenityCategories }) {
                       </div>
                     </div>
 
-                    <div className="mt-8 pt-5 border-t border-slate-200 flex justify-between">
-                      <button className={BTN.secondary} onClick={() => go(idx - 1)}>Նախորդ</button>
+                    <div className="mt-7 flex flex-wrap items-center justify-between gap-3">
+                      <button type="button" className={BTN.secondary} onClick={() => go(idx - 1)}>
+                        Նախորդ
+                      </button>
                       <div className="flex gap-3">
-                        <button className={BTN.secondary} disabled={processing} onClick={saveDraft}>Պահպանել (սևագիր)</button>
-                        <button className={BTN.primary} disabled={processing} onClick={publishNow}>Հրապարակել հիմա</button>
+                        <button type="button" className={BTN.secondary} disabled={processing} onClick={saveDraft}>
+                          Պահպանել (սևագիր)
+                        </button>
+                        <button type="button" className={BTN.primary} disabled={processing} onClick={publishNow}>
+                          Հրապարակել հիմա
+                        </button>
                       </div>
                     </div>
                   </Section>
@@ -1010,16 +1037,16 @@ function AmenitiesPicker({ categories = [], value = [], onChange }) {
 function pickType(which, setData) {
   const next = {
     type_ab_fixed: false,
-    type_addr_addr: false,
-    type_fixed_start_flexible_end: false,
-    type_flexible_start_fixed_end: false,
+    type_pax_to_pax: false,
+    type_pax_to_b: false,
+    type_a_to_pax: false,
   };
   next[which] = true;
   const resetStart = { start_free_km: "", start_amd_per_km: "", start_max_km: "" };
   const resetEnd   = { end_free_km: "",   end_amd_per_km: "",   end_max_km: ""   };
   let patch = {};
-  if (which === "type_addr_addr") patch = { ...resetStart, ...resetEnd };
-  else if (which === "type_fixed_start_flexible_end") patch = { ...resetEnd };
-  else if (which === "type_flexible_start_fixed_end") patch = { ...resetStart };
+  if (which === "type_pax_to_pax") patch = { ...resetStart, ...resetEnd };
+  else if (which === "type_a_to_pax") patch = { ...resetEnd };
+  else if (which === "type_pax_to_b") patch = { ...resetStart };
   setData((d) => ({ ...d, ...next, ...patch }));
 }

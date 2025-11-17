@@ -6,7 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\{Trip, Vehicle};
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
-
+use Illuminate\Support\Facades\DB;
 use App\Models\{Amenity};
 
 use Inertia\Inertia;
@@ -167,20 +167,54 @@ class TripController extends Controller
         return back()->with('ok', 'Սկսվեց երթուղին');
     }
 
-    public function finish(Trip $trip)
-    {
-        abort_unless($trip->user_id === auth()->id(), 403);
+    // public function finish(Trip $trip)
+    // {
+    //     abort_unless($trip->user_id === auth()->id(), 403);
 
-        if ($trip->driver_state !== 'en_route') {
-            return back()->with('warn', 'Նախ պետք է սկսել երթուղին');
-        }
+    //     if ($trip->driver_state !== 'en_route') {
+    //         return back()->with('warn', 'Նախ պետք է սկսել երթուղին');
+    //     }
 
+    //     $trip->update([
+    //         'driver_state' => 'done',
+    //         'driver_finished_at' => Carbon::now(),
+    //     ]);
+
+    //     return back()->with('ok', 'Երթուղին ավարտվեց');
+    // }
+
+public function finish(Trip $trip)
+{
+    abort_unless($trip->user_id === auth()->id(), 403);
+
+    if ($trip->driver_state !== 'en_route') {
+        return back()->with('warn', 'Նախ պետք է սկսել երթուղին');
+    }
+
+    DB::transaction(function () use ($trip) {
+        $now      = Carbon::now();
+        $driverId = auth()->id();
+
+        // 1) завершаем рейс
         $trip->update([
-            'driver_state' => 'done',
-            'driver_finished_at' => Carbon::now(),
+            'driver_state'       => 'done',
+            'driver_finished_at' => $now,
         ]);
 
-        return back()->with('ok', 'Երթուղին ավարտվեց');
-    }
+        // 2) все pending-заявки по этому trip → rejected
+        $trip->rideRequests()
+            ->where('status', 'pending')
+            ->update([
+                'status'             => 'rejected',
+                'decided_by_user_id' => $driverId,
+                'decided_at'         => $now,
+            ]);
+    });
+
+    return back()->with('ok', 'Երթուղին ավարտվեց');
+}
+
+
+
 
 }

@@ -24,7 +24,7 @@ use App\Http\Controllers\Company\OwnerDashboardController;
 use App\Http\Controllers\Company\TripStopsController as CTripStops;
 use App\Http\Controllers\OffersPageController ;
 
-
+use App\Models\Trip;
 
 
 
@@ -297,16 +297,16 @@ Route::middleware('auth')->group(function () {
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 });
 
-Route::middleware(['auth'])->group(function () {
-    Route::get('/driver/pending-requests/state', [DriverNotificationsController::class, 'pendingState'])
-        ->name('driver.pending.state');
-});
+// Route::middleware(['auth'])->group(function () {
+//     Route::get('/driver/pending-requests/state', [DriverNotificationsController::class, 'pendingState'])
+//         ->name('driver.pending.state');
+// });
 
-// DRIVER
-Route::middleware(['auth'])->group(function () {
-    Route::get('/driver/pending-requests/state', [DriverNotificationsController::class, 'pendingState'])
-        ->name('driver.pending.state');
-});
+// // DRIVER
+// Route::middleware(['auth'])->group(function () {
+//     Route::get('/driver/pending-requests/state', [DriverNotificationsController::class, 'pendingState'])
+//         ->name('driver.pending.state');
+// });
 Route::middleware(['auth','verified','approved','can:driver'])
     ->prefix('driver')->name('driver.')->group(function () {
         // страница просмотра конкретного рейса
@@ -386,7 +386,27 @@ Route::get('/trips', [ExploreController::class, 'index'])->name('client.trips.in
 
 // CLIENT
 Route::middleware(['auth','verified'])->group(function () {
-    Route::get('/trip/{trip}', [\App\Http\Controllers\Client\TripShowController::class, 'show'])
+    // Route::get('/trip/{trip}', [\App\Http\Controllers\Client\TripShowController::class, 'show'])
+    //     ->whereNumber('trip')
+    //     ->name('trip.show');
+
+   Route::get('/trip/{trip}', function (Request $request, Trip $trip) {
+        // 1) рейс завершён
+        $isFinished = $trip->driver_state === 'done'
+            || !is_null($trip->driver_finished_at);
+
+        // 2) рейс не опубликован (любой статус, кроме 'published')
+        $isNotPublished = $trip->status !== 'published';
+
+        // Если рейс завершён ИЛИ не опубликован — по прямой ссылке не даём открыть
+        if ($isFinished || $isNotPublished) {
+            return back()->with('warn', 'Այս երթուղին այլևս հասանելի չէ');
+        }
+
+        // Иначе вызываем обычный контроллер показа
+        return app(\App\Http\Controllers\Client\TripShowController::class)
+            ->show($trip, $request);   // <-- ВАЖНО: сначала $trip, потом $request
+    })
         ->whereNumber('trip')
         ->name('trip.show');
     Route::post('/trips/{trip}/book', [BookingController::class, 'store'])->name('client.book');
@@ -457,5 +477,16 @@ Route::middleware(['auth','verified'])->prefix('chat')->name('chat.')->group(fun
 
 });
 
+// routes/web.php (или отдельный driver routes файл)
 
+Route::middleware(['auth', 'verified'])
+    ->prefix('driver')
+    ->name('driver.')
+    ->group(function () {
+        Route::get('/pending-requests/state', [DriverNotificationsController::class, 'pendingState'])
+            ->name('pending-requests.state');
+
+        Route::post('/pending-requests/seen', [DriverNotificationsController::class, 'markAsSeen'])
+            ->name('pending-requests.seen');
+    });
 require __DIR__.'/auth.php';

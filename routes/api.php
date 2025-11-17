@@ -10,6 +10,9 @@ use App\Http\Controllers\Admin\AmenityController;
 use App\Http\Controllers\Api\TripController as ApiTripController;
 use App\Http\Controllers\Api\Driver\TripAmenitiesApiController;
 use Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful as Stateful;
+use App\Http\Controllers\Api\Driverv2\TripSoftDeleteController as DriverTripSD;
+use App\Http\Controllers\Api\CompanyV1\TripSoftDeleteController as CompanyTripSD;
+
 use App\Http\Controllers\Api\Company\{
     CompanyApiController,
     MemberApiController,
@@ -390,3 +393,28 @@ Route::get('/trips', [ApiTripController::class, 'index']);
 
 // пример защищённого API
 Route::middleware('auth:sanctum')->get('/me', fn(\Illuminate\Http\Request $r) => $r->user());
+
+
+
+
+Route::middleware(['auth:sanctum'])->group(function () {
+
+    // DRIVER v2
+    Route::prefix('driverv2')->group(function () {
+        Route::get('trips/trashed',       [DriverTripSD::class, 'trashed']);
+        Route::delete('trips/{trip}',     [DriverTripSD::class, 'destroy']);
+        Route::post('trips/{trip}/restore', [DriverTripSD::class, 'restore'])->withTrashed();
+        Route::delete('trips/{trip}/force', [DriverTripSD::class, 'forceDestroy'])->withTrashed();
+    });
+
+    // COMPANY v1
+    Route::prefix('company/v1')->group(function () {
+        // ?company_id=... в query для списка
+        Route::get('trips/trashed',         [CompanyTripSD::class, 'trashed']);
+
+        // для restore/force/destroy используем implicit binding с soft-deleted
+        Route::delete('trips/{trip}',       [CompanyTripSD::class, 'destroy']);
+        Route::post('trips/{trip}/restore', [CompanyTripSD::class, 'restore'])->withTrashed();
+        Route::delete('trips/{trip}/force', [CompanyTripSD::class, 'forceDestroy'])->withTrashed();
+    });
+});

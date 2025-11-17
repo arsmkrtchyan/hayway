@@ -23,8 +23,8 @@ class RideRequestApiController extends Controller
 
         $q = RideRequest::query()
             ->with([
-                // сразу подгружаем флаги завершения поездки
-                'trip:id,from_addr,to_addr,departure_at,user_id,driver_finished_at,driver_state',
+                // подгружаем флаги завершения + статус рейса
+                'trip:id,from_addr,to_addr,departure_at,user_id,driver_finished_at,driver_state,status',
             ])
             ->whereHas('trip', fn($qq) => $qq->where('user_id', $r->user()->id))
             ->latest();
@@ -60,7 +60,7 @@ class RideRequestApiController extends Controller
 
         $items = RideRequest::query()
             ->with([
-                'trip:id,from_addr,to_addr,departure_at,user_id,driver_finished_at,driver_state',
+                'trip:id,from_addr,to_addr,departure_at,user_id,driver_finished_at,driver_state,status',
             ])
             ->where('trip_id', $trip->id)
             ->latest()
@@ -161,13 +161,15 @@ class RideRequestApiController extends Controller
 
     private function map(RideRequest $x): array
     {
-        $trip = $x->relationLoaded('trip') ? $x->trip : $x->trip;
+        $trip = $x->trip; // relation уже подгружен через with()
+
+        // статус рейса (published, archived, draft, …)
+        $tripState = $trip?->status;
 
         // Условие:
         // 1) у trip установлен driver_finished_at
         // 2) driver_state == 'done'
         // 3) сам ride_request.status == 'accepted'
-        // никакие другие статусы (de_request и т.п.) не учитываем
         $isDone = $trip
             && !is_null($trip->driver_finished_at)
             && $trip->driver_state === 'done'
@@ -184,8 +186,11 @@ class RideRequestApiController extends Controller
             'decided_by_user_id' => $x->decided_by_user_id,
             'decided_at'         => optional($x->decided_at)->toIso8601String(),
 
-            // флаг по ride_request, который ты можешь использовать на фронте
-            'is_done' => $isDone,
+            // флаг: заявка принята и рейс завершен
+            'is_done'    => $isDone,
+
+            // тут отдаем state рейса (published/archived/…)
+            'trip_state' => $tripState,
 
             'trip' => $trip ? [
                 'id'              => $trip->id,
@@ -193,7 +198,8 @@ class RideRequestApiController extends Controller
                 'to_addr'         => $trip->to_addr,
                 'departure_at'    => optional($trip->departure_at)->toIso8601String(),
                 'driver_finished_at' => optional($trip->driver_finished_at)->toIso8601String(),
-                'driver_state'      => $trip->driver_state,
+                'driver_state'       => $trip->driver_state,
+                'status'            => $trip->status, // дублируем и внутри trip
             ] : null,
         ];
     }

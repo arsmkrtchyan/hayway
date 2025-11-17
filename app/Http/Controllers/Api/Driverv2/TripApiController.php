@@ -211,6 +211,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
 
+use App\Models\RideRequest;
+use Illuminate\Support\Facades\DB;
 class TripApiController extends Controller
 {
     /* ===== validation ===== */
@@ -677,11 +679,46 @@ class TripApiController extends Controller
         return response()->json(['data' => ['id' => $trip->id, 'driver_state' => 'en_route']]);
     }
 
+    // public function finish(Trip $trip)
+    // {
+    //     abort_unless($trip->user_id === auth()->id(), 403);
+    //     if ($trip->driver_state !== 'en_route') return response()->json(['error' => 'not_started'], 409);
+    //     $trip->update(['driver_state' => 'done', 'driver_finished_at' => Carbon::now()]);
+    //     return response()->json(['data' => ['id' => $trip->id, 'driver_state' => 'done']]);
+    // }
     public function finish(Trip $trip)
     {
         abort_unless($trip->user_id === auth()->id(), 403);
-        if ($trip->driver_state !== 'en_route') return response()->json(['error' => 'not_started'], 409);
-        $trip->update(['driver_state' => 'done', 'driver_finished_at' => Carbon::now()]);
-        return response()->json(['data' => ['id' => $trip->id, 'driver_state' => 'done']]);
+
+        if ($trip->driver_state !== 'en_route') {
+            return response()->json(['error' => 'not_started'], 409);
+        }
+
+        DB::transaction(function () use ($trip) {
+            $now = Carbon::now();
+            $driverId = auth()->id();
+
+            // 1) Обновляем сам trip
+            $trip->update([
+                'driver_state'       => 'done',
+                'driver_finished_at' => $now,
+            ]);
+
+            // 2) Все заявки по этому trip, которые так и остались pending → rejected
+            $trip->rideRequests()
+                ->where('status', 'pending')
+                ->update([
+                    'status'             => 'rejected',
+                    'decided_by_user_id' => $driverId,
+                    'decided_at'         => $now,
+                ]);
+        });
+
+        return response()->json([
+            'data' => [
+                'id'            => $trip->id,
+                'driver_state'  => 'done',
+            ],
+        ]);
     }
 }

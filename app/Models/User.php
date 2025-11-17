@@ -37,15 +37,23 @@ class User extends Authenticatable implements MustVerifyEmail
      *
      * @return array<string, string>
      */
-    protected function casts(): array
-    {
-        return [
-            'email_verified_at' => 'datetime',
-            'password' => 'hashed',
-        ];
-    }
+   protected function casts(): array
+{
+    return [
+        'email_verified_at'    => 'datetime',
+        'password'             => 'hashed',
+        'notifications_seen_at'=> 'datetime',
+    ];
+}
     public function isAdmin(): bool { return $this->role === 'admin'; }
     public function isApproved(): bool { return $this->admin_status === 'approved'; }
+
+    public function markNotificationsSeen(): void
+    {
+        $this->forceFill([
+            'notifications_seen_at' => now(),
+        ])->save();
+    }
 
 
     public function driver() { return $this->hasOne(Driver::class); }
