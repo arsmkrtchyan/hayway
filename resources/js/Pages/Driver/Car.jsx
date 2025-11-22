@@ -24,32 +24,24 @@ async function geocodeNominatim(q) {
 }
 
 /** Ավտոառաջարկներ, приоритет Armenia + hy */
-async function searchSuggestions(q, { onlyAM = false } = {}) {
+async function searchSuggestions(q) {
   if (!q?.trim()) return [];
-  const base = new URL("https://nominatim.openstreetmap.org/search");
-  base.searchParams.set("format", "jsonv2");
-  base.searchParams.set("accept-language", NOMI_LANG);
-  base.searchParams.set("namedetails", "1");
-  base.searchParams.set("addressdetails", "1");
-  base.searchParams.set("limit", "7");
-  if (onlyAM) base.searchParams.set("countrycodes", "am");
-  base.searchParams.set("q", q.trim());
-  const r = await fetch(base.toString(), { headers: { Accept: "application/json" } });
-  if (!r.ok) return [];
-  const arr = await r.json();
 
-  const mapItem = (it) => {
-    const hy = it?.namedetails?.["name:hy"];
-    const label = hy || it.display_name || it.name || q;
-    return {
-      id: it.place_id,
-      label,
-      raw: it,
-      lat: parseFloat(it.lat),
-      lng: parseFloat(it.lon),
-    };
-  };
-  return (arr || []).map(mapItem);
+  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=7&accept-language=${encodeURIComponent(
+    NOMI_LANG
+  )}&q=${encodeURIComponent(q.trim())}`;
+
+  const r = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!r.ok) return [];
+
+  const arr = (await r.json()) || [];
+
+  return arr.map((it) => ({
+    id: it.place_id ?? `${it.lat},${it.lon}`,
+    label: it.display_name || q,
+    lat: parseFloat(it.lat),
+    lng: parseFloat(it.lon),
+  }));
 }
 
 /** Ռևեռս-գեոկոդ */
@@ -353,24 +345,31 @@ function AddressInput({ label, value, onChange, onPick, placeholder = "Գրեք 
   const debounced = useDebouncedState(value, 250);
   const boxRef = useRef(null);
 
-  useEffect(() => {
+   useEffect(() => {
     let cancelled = false;
+
     (async () => {
-      if (!debounced?.trim()) { setItems([]); return; }
+      const q = debounced?.trim();
+      if (!q) {
+        setItems([]);
+        return;
+      }
+
       setBusy(true);
       try {
-        let am = await searchSuggestions(debounced, { onlyAM: true });
-        if (am.length < 5) {
-          const rest = await searchSuggestions(debounced, { onlyAM: false });
-          const used = new Set(am.map(i => i.id));
-          rest.forEach(i => { if (!used.has(i.id)) am.push(i); });
+        const list = await searchSuggestions(q); // один быстрый запрос
+        if (!cancelled) {
+          // можно обрезать до 10, чтобы не раздувать дропдаун
+          setItems(list.slice(0, 10));
         }
-        if (!cancelled) setItems(am.slice(0, 10));
       } finally {
         if (!cancelled) setBusy(false);
       }
     })();
-    return () => { cancelled = true; };
+
+    return () => {
+      cancelled = true;
+    };
   }, [debounced]);
 
   useEffect(() => {

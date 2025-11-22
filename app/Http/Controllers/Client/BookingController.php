@@ -399,6 +399,10 @@ class BookingController extends Controller
                     'name' => $s->name,
                     'addr' => $s->addr,
                 ]),
+                'route_points' => collect($trip->route_points ?: [])->map(fn($p) => [
+                    'lat' => isset($p['lat']) ? (float)$p['lat'] : null,
+                    'lng' => isset($p['lng']) ? (float)$p['lng'] : null,
+                ])->filter(fn($p) => is_finite($p['lat']) && is_finite($p['lng']))->values(),
                 'policy' => ['cancelMinBefore' => 30],
             ],
             'pricing' => [

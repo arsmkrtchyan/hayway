@@ -107,7 +107,9 @@ function zoneLabel(code) {
 
 async function reverseGeocodeNominatim(lng, lat) {
     try {
-        const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&accept-language=${encodeURIComponent(NOMI_LANG)}&lat=${lat}&lon=${lng}&addressdetails=1`;
+        const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&accept-language=${encodeURIComponent(
+            NOMI_LANG
+        )}&lat=${lat}&lon=${lng}&addressdetails=1`;
         const res = await fetch(url, { headers: { Accept: "application/json" } });
         if (!res.ok) return "";
         const data = await res.json();
@@ -118,6 +120,40 @@ async function reverseGeocodeNominatim(lng, lat) {
         return "";
     }
 }
+
+/** Простой debounce для значения */
+function useDebouncedValue(value, delay = 250) {
+    const [debounced, setDebounced] = useState(value);
+
+    useEffect(() => {
+        const id = setTimeout(() => setDebounced(value), delay);
+        return () => clearTimeout(id);
+    }, [value, delay]);
+
+    return debounced;
+}
+
+/** Быстрые подсказки адресов через Nominatim (один лёгкий запрос) */
+async function searchSuggestions(q) {
+    if (!q?.trim()) return [];
+
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=7&accept-language=${encodeURIComponent(
+        NOMI_LANG
+    )}&q=${encodeURIComponent(q.trim())}`;
+
+    const r = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!r.ok) return [];
+
+    const arr = (await r.json()) || [];
+
+    return arr.map((it) => ({
+        id: it.place_id ?? `${it.lat},${it.lon}`,
+        label: it.display_name || q,
+        lat: parseFloat(it.lat),
+        lng: parseFloat(it.lon),
+    }));
+}
+
 
 let maplibrePromise = null;
 function ensureMapLibre() {
@@ -671,24 +707,18 @@ function HeroSearchBar({ search, onChange, onSubmit, onSwap, onPassengersChange,
             className="flex flex-wrap items-end gap-3 rounded-3xl border border-slate-200 bg-white/90 p-4 shadow-lg"
         >
             <div className="flex flex-1 items-center gap-3">
-                <div className="flex flex-1 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm focus-within:border-emerald-500">
-                    <MapPin className="h-4 w-4 text-emerald-600" />
-                    <input
-                        type="text"
-                        className="w-full border-none bg-transparent text-sm text-slate-900 placeholder-slate-400 focus:outline-none"
-                        placeholder="Մեկնարկային կետ"
-                        value={search.from}
-                        onChange={(e) => update({ from: e.target.value, fromLat: null, fromLng: null })}
-                    />
-                    <button
-                        type="button"
-                        onClick={() => onOpenMap?.("from")}
-                        className="rounded-full border border-slate-200 p-2 text-slate-500 transition hover:border-emerald-300 hover:text-emerald-600"
-                        aria-label="Ընտրել քարտեզից"
-                    >
-                        <MapIcon className="h-4 w-4" />
-                    </button>
-                </div>
+                {/* FROM */}
+                <AddressInput
+                    side="from"
+                    value={search.from}
+                    lat={search.fromLat}
+                    lng={search.fromLng}
+                    placeholder="Մեկնարկային կետ"
+                    onChange={update}
+                    onOpenMap={() => onOpenMap?.("from")}
+                />
+
+                {/* swap кнопка как и была */}
                 <button
                     type="button"
                     onClick={onSwap}
@@ -697,25 +727,19 @@ function HeroSearchBar({ search, onChange, onSubmit, onSwap, onPassengersChange,
                 >
                     <ArrowLeftRight className="h-4 w-4" />
                 </button>
-                <div className="flex flex-1 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm focus-within:border-emerald-500">
-                    <MapPin className="h-4 w-4 text-emerald-600" />
-                    <input
-                        type="text"
-                        className="w-full border-none bg-transparent text-sm text-slate-900 placeholder-slate-400 focus:outline-none"
-                        placeholder="Վերջնակետ"
-                        value={search.to}
-                        onChange={(e) => update({ to: e.target.value, toLat: null, toLng: null })}
-                    />
-                    <button
-                        type="button"
-                        onClick={() => onOpenMap?.("to")}
-                        className="rounded-full border border-slate-200 p-2 text-slate-500 transition hover:border-emerald-300 hover:text-emerald-600"
-                        aria-label="Ընտրել քարտեզից"
-                    >
-                        <MapIcon className="h-4 w-4" />
-                    </button>
-                </div>
+
+                {/* TO */}
+                <AddressInput
+                    side="to"
+                    value={search.to}
+                    lat={search.toLat}
+                    lng={search.toLng}
+                    placeholder="Վերջնակետ"
+                    onChange={update}
+                    onOpenMap={() => onOpenMap?.("to")}
+                />
             </div>
+
             <div className="flex flex-wrap items-end gap-3">
                 <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
                     <Calendar className="h-4 w-4 text-emerald-600" />
@@ -737,7 +761,9 @@ function HeroSearchBar({ search, onChange, onSubmit, onSwap, onPassengersChange,
                         >
                             –
                         </button>
-                        <span className="w-8 text-center text-sm font-semibold text-slate-900">{search.passengers}</span>
+                        <span className="w-8 text-center text-sm font-semibold text-slate-900">
+                            {search.passengers}
+                        </span>
                         <button
                             type="button"
                             onClick={() => onPassengersChange(1)}
@@ -757,6 +783,149 @@ function HeroSearchBar({ search, onChange, onSubmit, onSwap, onPassengersChange,
                 </button>
             </div>
         </form>
+    );
+}
+
+function AddressInput({ side, value, lat, lng, placeholder, onChange, onOpenMap }) {
+    const [input, setInput] = useState(value || "");
+    const [items, setItems] = useState([]);
+    const [busy, setBusy] = useState(false);
+    const [open, setOpen] = useState(false);
+    const [highlight, setHighlight] = useState(-1);
+    const inputRef = useRef(null);
+
+    // синхронизируем внутренний input при изменении props.value (например, при возврате с сервера)
+    useEffect(() => {
+        setInput(value || "");
+    }, [value]);
+
+    const debounced = useDebouncedValue(input, 250);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        (async () => {
+            const q = debounced?.trim();
+            if (!q) {
+                setItems([]);
+                setOpen(false);
+                return;
+            }
+
+            setBusy(true);
+            try {
+                const list = await searchSuggestions(q); // один быстрый запрос
+                if (!cancelled) {
+                    setItems(list.slice(0, 10));
+                    setOpen(list.length > 0);
+                    setHighlight(-1);
+                }
+            } finally {
+                if (!cancelled) setBusy(false);
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [debounced]);
+
+    const applyPatch = (label, newLat, newLng) => {
+        onChange?.({
+            [side]: label,
+            [`${side}Lat`]: newLat,
+            [`${side}Lng`]: newLng,
+        });
+    };
+
+    const handleChange = (e) => {
+        const v = e.target.value;
+        setInput(v);
+        // сбрасываем координаты, если пользователь вручную редактирует текст
+        applyPatch(v, null, null);
+    };
+
+    const handleChoose = (item) => {
+        setInput(item.label);
+        setItems([]);
+        setOpen(false);
+        setHighlight(-1);
+        applyPatch(item.label, item.lat, item.lng);
+    };
+
+    const handleKeyDown = (e) => {
+        if (!open || !items.length) return;
+        if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setHighlight((prev) => (prev + 1) % items.length);
+        } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setHighlight((prev) => (prev - 1 + items.length) % items.length);
+        } else if (e.key === "Enter") {
+            if (highlight >= 0 && highlight < items.length) {
+                e.preventDefault();
+                handleChoose(items[highlight]);
+            }
+        } else if (e.key === "Escape") {
+            setOpen(false);
+        }
+    };
+
+    const handleBlur = () => {
+        // даём возможность кликнуть по подсказке (mousedown) перед закрытием
+        setTimeout(() => setOpen(false), 150);
+    };
+
+    return (
+        <div className="relative flex-1">
+            <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm focus-within:border-emerald-500">
+                <MapPin className="h-4 w-4 text-emerald-600" />
+                <input
+                    ref={inputRef}
+                    type="text"
+                    className="w-full border-none bg-transparent text-sm text-slate-900 placeholder-slate-400 focus:outline-none"
+                    placeholder={placeholder}
+                    value={input}
+                    onChange={handleChange}
+                    onKeyDown={handleKeyDown}
+                    onFocus={() => {
+                        if (items.length) setOpen(true);
+                    }}
+                    onBlur={handleBlur}
+                />
+                {busy && <span className="text-[10px] text-slate-400">...</span>}
+                <button
+                    type="button"
+                    onClick={onOpenMap}
+                    className="rounded-full border border-slate-200 p-2 text-slate-500 transition hover:border-emerald-300 hover:text-emerald-600"
+                    aria-label="Ընտրել քարտեզից"
+                >
+                    <MapIcon className="h-4 w-4" />
+                </button>
+            </div>
+
+            {open && items.length > 0 && (
+                <div className="absolute left-0 right-0 z-20 mt-1 max-h-64 overflow-auto rounded-2xl border border-slate-200 bg-white shadow-lg">
+                    {items.map((item, i) => (
+                        <button
+                            key={item.id}
+                            type="button"
+                            onMouseDown={(e) => {
+                                e.preventDefault();
+                                handleChoose(item);
+                            }}
+                            className={`block w-full px-3 py-2 text-left text-xs ${
+                                i === highlight
+                                    ? "bg-emerald-50 text-emerald-700"
+                                    : "text-slate-700 hover:bg-slate-50"
+                            }`}
+                        >
+                            {item.label}
+                        </button>
+                    ))}
+                </div>
+            )}
+        </div>
     );
 }
 

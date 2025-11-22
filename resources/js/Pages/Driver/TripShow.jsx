@@ -441,9 +441,9 @@ export default function TripShow({ trip, requests=[], ratingsByUserId={} }){
                                             <TileLayer attribution="&copy; OSM" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
                                             {/* Линии: базовая и новая */}
-                                            {sim.baseCoords?.length > 1 && (
+                                            {/* {sim.baseCoords?.length > 1 && (
                                                 <Polyline positions={sim.baseCoords.map((p) => [p.lat, p.lng])} weight={4} />
-                                            )}
+                                            )} */}
                                             {sim.newCoords?.length > 1 && (
                                                 <Polyline positions={sim.newCoords.map((p) => [p.lat, p.lng])} weight={6} />
                                             )}

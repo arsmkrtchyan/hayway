@@ -26,7 +26,11 @@ async function osrmRouteVia(profile, points){
     const path=pts.map(p=>`${p.lng},${p.lat}`).join(";");
     const url=`https://router.project-osrm.org/route/v1/${profile}/${path}?overview=full&geometries=geojson&alternatives=false`;
     const r=await fetch(url); if(!r.ok) throw new Error("OSRM "+r.status);
-    const d=await r.json(); return d?.routes?.[0]||null;
+    const d=await r.json();
+    if (d?.code !== "Ok" || !Array.isArray(d?.routes) || !d.routes.length) {
+        throw new Error("OSRM empty");
+    }
+    return d.routes[0];
 }
 
 /* ===== Page ===== */
@@ -93,7 +97,8 @@ export default function BookingShow({ booking }){
 
                 <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
                     <div className="space-y-6">
-                        <Hero trip={trip} until={until} />
+                        <Hero trip={trip} until={until} meta={bk.meta} />
+
                         <CardsRow bk={bk} pricing={pricing} total={total} freeAvail={freeAvail} />
                         <StopsCard stops={trip.stops||[]} from={trip.from} to={trip.to} />
                     </div>
@@ -127,8 +132,12 @@ export default function BookingShow({ booking }){
 }
 
 /* ===== sections ===== */
-function Hero({ trip, until }){
+function Hero({ trip, until, meta = {} }){
     const [durationMin,setDurationMin]=useState(null);
+
+    const pickup = meta?.pickup || null;
+    const drop   = meta?.drop   || null;
+
     return (
         <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
             <div className="h-1.5 w-full bg-[repeating-linear-gradient(90deg,#10b981_0_16px,#10b981_16px_18px,transparent_18px_34px,transparent_34px_36px)]" />
@@ -138,7 +147,10 @@ function Hero({ trip, until }){
                         A={{ lng: trip.from_lng, lat: trip.from_lat }}
                         B={{ lng: trip.to_lng,   lat: trip.to_lat   }}
                         stops={(trip.stops||[]).sort((a,b)=> (a.position||0)-(b.position||0))}
-                        onDuration={(m)=>setDurationMin(Math.round((m||0)/60))}
+                        routePoints={trip.route_points||[]}
+                        pickup={pickup}
+                        drop={drop}
+                        onDuration={(sec)=>setDurationMin(Math.round((sec||0)/60))}
                     />
                 </div>
                 <div className="flex flex-col justify-between p-5">
@@ -352,38 +364,90 @@ function FitTo({ routeCoords, pts }){
     return null;
 }
 
-function MapRoute({ A, B, stops=[], onDuration }){
+function MapRoute({ A, B, stops = [], pickup = null, drop = null, routePoints = [], onDuration }) {
     const [routeCoords, setRouteCoords] = useState([]); // [{lat,lng}]
     const [fallbackCoords, setFallbackCoords] = useState([]);
 
-    const points = useMemo(() => {
-        const ordered = (stops||[]).slice().sort((a,b)=> (a.position||0)-(b.position||0));
-        return [A, ...ordered, B].filter(p=>Number.isFinite(p?.lng)&&Number.isFinite(p?.lat));
-    }, [A?.lng,A?.lat,B?.lng,B?.lat, JSON.stringify(stops)]);
+    const normPoint = (p) => {
+        if (!p) return null;
+        const lat = Number(p.lat);
+        const lng = Number(p.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        return { lat, lng };
+    };
 
-    useEffect(()=>{
-        let cancelled=false;
-        (async()=>{
-            if (points.length < 2) { setRouteCoords([]); setFallbackCoords([]); return; }
-            try{
+    const normA    = normPoint(A);
+    const normB    = normPoint(B);
+    const normPickup = normPoint(pickup);
+    const normDrop   = normPoint(drop);
+    const providedRoute = useMemo(
+        () => (routePoints || []).map((p) => normPoint(p)).filter(Boolean),
+        [JSON.stringify(routePoints)]
+    );
+
+    // Порядок точек, через которые "принятый" рейс поедет
+    const points = useMemo(() => {
+        const orderedStops = (stops || [])
+            .slice()
+            .sort((a, b) => (a.position || 0) - (b.position || 0))
+            .map((s) => normPoint(s))
+            .filter(Boolean);
+
+        const arr = [];
+        if (normA) arr.push(normA);
+
+        // Вставляем pickup ближе к старту
+        if (normPickup) arr.push(normPickup);
+
+        // Потом официальные остановки
+        arr.push(...orderedStops);
+
+        // Drop ближе к финишу
+        if (normDrop) arr.push(normDrop);
+
+        if (normB) arr.push(normB);
+
+        return arr;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [JSON.stringify(stops), JSON.stringify(normA), JSON.stringify(normB), JSON.stringify(normPickup), JSON.stringify(normDrop)]);
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            if (providedRoute.length > 1) {
+                setRouteCoords(providedRoute);
+                setFallbackCoords([]);
+                return;
+            }
+            if (points.length < 2) {
+                setRouteCoords([]);
+                setFallbackCoords([]);
+                return;
+            }
+            try {
                 const r = await osrmRouteVia('driving', points);
                 if (cancelled) return;
-                const coords = (r?.geometry?.coordinates||[]).map(([lng,lat])=>({lat,lng}));
-                setRouteCoords(coords);
-                setFallbackCoords([]);
+                const coords = (r?.geometry?.coordinates || []).map(([lng, lat]) => ({ lat, lng }));
+                if (coords.length > 1) {
+                    setRouteCoords(coords);
+                    setFallbackCoords([]);
+                } else {
+                    setRouteCoords([]);
+                    setFallbackCoords(points.map(p => ({ lat: p.lat, lng: p.lng })));
+                }
                 if (onDuration && Number.isFinite(r?.duration)) onDuration(r.duration); // seconds
-            }catch{
+            } catch {
                 if (cancelled) return;
                 setRouteCoords([]);
-                setFallbackCoords(points.map(p=>({lat:p.lat,lng:p.lng})));
+                setFallbackCoords(points.map(p => ({ lat: p.lat, lng: p.lng })));
             }
         })();
-        return ()=>{ cancelled=true; };
-    }, [JSON.stringify(points)]);
+        return () => { cancelled = true; };
+    }, [JSON.stringify(points), onDuration]);
 
-    const mid = Number.isFinite(A?.lat)&&Number.isFinite(B?.lat)
-        ? [(A.lat+B.lat)/2, (A.lng+B.lng)/2]
-        : [40.1792, 44.4991];
+    const mid = (normA && normB)
+        ? [(normA.lat + normB.lat) / 2, (normA.lng + normB.lng) / 2]
+        : (providedRoute[0] ? [providedRoute[0].lat, providedRoute[0].lng] : [40.1792, 44.4991]);
 
     return (
         <MapContainer center={mid} zoom={8} className="h-full w-full">
@@ -394,23 +458,50 @@ function MapRoute({ A, B, stops=[], onDuration }){
 
             {/* Route polyline */}
             {routeCoords.length > 1 && (
-                <Polyline positions={routeCoords.map(p=>[p.lat,p.lng])} weight={6} />
+                <Polyline positions={routeCoords.map(p => [p.lat, p.lng])} weight={6} />
             )}
             {routeCoords.length === 0 && fallbackCoords.length > 1 && (
-                <Polyline positions={fallbackCoords.map(p=>[p.lat,p.lng])} weight={4} />
+                <Polyline positions={fallbackCoords.map(p => [p.lat, p.lng])} weight={4} />
             )}
 
-            {/* Markers */}
-            {Number.isFinite(A?.lng)&&Number.isFinite(A?.lat) && (
-                <Marker position={[A.lat,A.lng]} icon={mkDivIcon('#16a34a','Սկիզբ')} />
+            {/* Markers: A, stops, B */}
+            {normA && (
+                <Marker position={[normA.lat, normA.lng]} icon={mkDivIcon('#16a34a', 'Սկիզբ')} />
             )}
-            {(stops||[]).sort((a,b)=>(a.position||0)-(b.position||0)).map((s,i)=>(
-                Number.isFinite(s?.lng)&&Number.isFinite(s?.lat)
-                    ? <Marker key={i} position={[s.lat,s.lng]} icon={mkDivIcon('#22c55e', String(i+1))} />
-                    : null
-            ))}
-            {Number.isFinite(B?.lng)&&Number.isFinite(B?.lat) && (
-                <Marker position={[B.lat,B.lng]} icon={mkDivIcon('#ef4444','Վերջ')} />
+            {(stops || [])
+                .slice()
+                .sort((a, b) => (a.position || 0) - (b.position || 0))
+                .forEach} {/* оставь как есть, см. ниже */}
+            {(stops || [])
+                .slice()
+                .sort((a, b) => (a.position || 0) - (b.position || 0))
+                .map((s, i) => {
+                    const ns = normPoint(s);
+                    if (!ns) return null;
+                    return (
+                        <Marker
+                            key={i}
+                            position={[ns.lat, ns.lng]}
+                            icon={mkDivIcon('#22c55e', String(i + 1))}
+                        />
+                    );
+                })}
+            {normB && (
+                <Marker position={[normB.lat, normB.lng]} icon={mkDivIcon('#ef4444', 'Վերջ')} />
+            )}
+
+            {/* Маркеры клиента: pickup / drop */}
+            {normPickup && (
+                <Marker
+                    position={[normPickup.lat, normPickup.lng]}
+                    icon={mkDivIcon('#0ea5e9', 'Վերցնել')}
+                />
+            )}
+            {normDrop && (
+                <Marker
+                    position={[normDrop.lat, normDrop.lng]}
+                    icon={mkDivIcon('#6366f1', 'Իջեցնել')}
+                />
             )}
 
             <FitTo routeCoords={routeCoords} pts={points} />
