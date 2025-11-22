@@ -59,3 +59,13 @@ If you discover a security vulnerability within Laravel, please send an e-mail t
 ## License
 
 The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+
+## Driver trip rating checklist
+
+Use these steps to confirm that a company driver can rate passengers after finishing a trip:
+
+1. **Finish the assigned trip.** Ensure the trip has `driver_state` set to `done` via the "Finish" action in the driver/company trip page.
+2. **Open the accepted passengers block.** On the trip details page for the assigned driver, open the list of accepted passengers and click **Rate**.
+3. **Submit stars and a note.** In the rating modal, pick 1–5 stars and an optional comment and submit; the client calls the `/api/driverv2/trips/{trip}/rate-user` endpoint for each passenger.
+4. **Validate server rules.** The API accepts the request only when the caller is the `assigned_driver_id`, the trip is finished, and the passenger was accepted on that trip; otherwise it responds with `403`/`422`.
+5. **Check the result.** Successful submissions return `{ data: { status: "rated" } }` and update the passenger’s aggregate rating the same way as the web driver flow.
