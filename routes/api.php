@@ -226,9 +226,15 @@ Route::middleware(['auth:sanctum'])->prefix('driverv2')->group(function () {
 //    Route::post('/requests/{request}/open-chat', [RideRequestsApiController::class,'openChat'])->whereNumber('request');
 
     // company jobs assigned to me
-    Route::get('/company/jobs',                 [CompanyJobsApiController::class,'index']);
-    Route::post('/company/trips/{trip}/start',  [CompanyJobsApiController::class,'start'])->whereNumber('trip');
-    Route::post('/company/trips/{trip}/finish', [CompanyJobsApiController::class,'finish'])->whereNumber('trip');
+    // Route::get('/company/jobs',                 [CompanyJobsApiController::class,'index']);
+    // Route::post('/company/trips/{trip}/start',  [CompanyJobsApiController::class,'start'])->whereNumber('trip');
+    // Route::post('/company/trips/{trip}/finish', [CompanyJobsApiController::class,'finish'])->whereNumber('trip');
+
+
+
+
+
+
 
     // notifications
     Route::get('/notifications/pending', [NotificationsApiController::class,'pendingState']);
@@ -237,7 +243,13 @@ Route::middleware(['auth:sanctum'])->prefix('driverv2')->group(function () {
     Route::post('/trips/{trip}/rate-user', [TripRatingApiController::class,'rateUser'])->whereNumber('trip');
 });
 
-
+Route::middleware('auth:sanctum')
+    ->prefix('driverv2')
+    ->group(function () {
+        Route::get('/company-jobs', [CompanyJobsApiController::class, 'index']);
+        Route::post('/company-jobs/{trip}/start', [CompanyJobsApiController::class, 'start']);
+        Route::post('/company-jobs/{trip}/finish', [CompanyJobsApiController::class, 'finish']);
+    });
 
 
 Route::prefix('clientv2')->group(function () {

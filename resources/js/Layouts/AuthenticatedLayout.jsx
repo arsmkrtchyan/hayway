@@ -8,6 +8,12 @@ import { useState } from 'react';
 export default function AuthenticatedLayout({ header, children }) {
     const user = usePage().props.auth.user;
 
+    const redirectToLogin = () => {
+        window.location.href = '/login';
+    };
+
+
+
     const [showingNavigationDropdown, setShowingNavigationDropdown] =
         useState(false);
 
@@ -76,6 +82,7 @@ export default function AuthenticatedLayout({ header, children }) {
                                             href={route('logout')}
                                             method="post"
                                             as="button"
+                                             onSuccess={redirectToLogin}
                                         >
                                             Log Out
                                         </Dropdown.Link>
@@ -166,6 +173,7 @@ export default function AuthenticatedLayout({ header, children }) {
                                 method="post"
                                 href={route('logout')}
                                 as="button"
+                                  onSuccess={redirectToLogin}
                             >
                                 Log Out
                             </ResponsiveNavLink>

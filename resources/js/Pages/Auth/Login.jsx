@@ -101,15 +101,26 @@
 //     );
 // }
 import React, { useMemo, useState } from "react";
+import axios from "axios";
 import { Head, Link, useForm } from "@inertiajs/react";
 import { motion } from "framer-motion";
 import { Car, Mail, Lock, Eye, EyeOff, ShieldCheck } from "lucide-react";
 
+function getCsrfToken() {
+    const metaToken = document.querySelector('meta[name="csrf-token"]')?.content;
+    if (metaToken) {
+        return metaToken;
+    }
+
+    const cookieMatch = document.cookie.match(/XSRF-TOKEN=([^;]+)/);
+    return cookieMatch ? decodeURIComponent(cookieMatch[1]) : "";
+}
+
 /** Новый Login под Inertia/Laravel */
 export default function Login({ status, canResetPassword }) {
-    const csrf = document.querySelector('meta[name="csrf-token"]')?.content || "";
+     const csrf = getCsrfToken();
 
-    const { data, setData, post, processing, errors, reset } = useForm({
+    const { data, setData, post, processing, errors, reset, transform } = useForm({
         email: "",
         password: "",
         remember: true,
@@ -124,10 +135,22 @@ export default function Login({ status, canResetPassword }) {
         return e && p;
     }, [data.email, data.password]);
 
-    function handleSubmit(e) {
+     async function refreshCsrfToken() {
+        await axios.get("/sanctum/csrf-cookie");
+        const newToken = getCsrfToken();
+        setData("_token", newToken);
+        return newToken;
+    }
+
+    async function handleSubmit(e) {
         e.preventDefault();
+          const latestToken = await refreshCsrfToken();
+        const tokenForRequest = latestToken || csrf;
+
+        transform((formData) => ({ ...formData, _token: tokenForRequest }));
+
         post(route("login"), {
-            headers: { "X-CSRF-TOKEN": csrf },
+              headers: { "X-CSRF-TOKEN": tokenForRequest },
             onFinish: () => reset("password"),
         });
     }
