@@ -243,14 +243,6 @@ Route::middleware(['auth:sanctum'])->prefix('driverv2')->group(function () {
     Route::post('/trips/{trip}/rate-user', [TripRatingApiController::class,'rateUser'])->whereNumber('trip');
 });
 
-Route::middleware('auth:sanctum')
-    ->prefix('driverv2')
-    ->group(function () {
-        Route::get('/company-jobs', [CompanyJobsApiController::class, 'index']);
-        Route::post('/company-jobs/{trip}/start', [CompanyJobsApiController::class, 'start']);
-        Route::post('/company-jobs/{trip}/finish', [CompanyJobsApiController::class, 'finish']);
-    });
-
 
 Route::prefix('clientv2')->group(function () {
     // public
@@ -430,3 +422,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::delete('trips/{trip}/force', [CompanyTripSD::class, 'forceDestroy'])->withTrashed();
     });
 });
+
+Route::middleware('auth:sanctum')
+    ->prefix('driverv2')
+    ->group(function () {
+        Route::get('/company-jobs', [CompanyJobsApiController::class, 'index']);
+        Route::get('/company-jobs/dashboard', [CompanyJobsApiController::class, 'dashboard']);
+        Route::get('/company-jobs/{trip}', [CompanyJobsApiController::class, 'show']);
+        Route::post('/company-jobs/{trip}/start', [CompanyJobsApiController::class, 'start']);
+        Route::post('/company-jobs/{trip}/finish', [CompanyJobsApiController::class, 'finish']);
+    });
