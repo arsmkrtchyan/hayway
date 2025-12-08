@@ -1,0 +1,97 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Բազային տիպոգրաֆիա և render */
+:root {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  color: #0b1220;
+  background-color: #ffffff;
+}
+
+/* Հարթ scroll anchor-ների համար */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Լինկեր */
+a {
+  font-weight: 500;
+  color: #0f766e;
+  text-decoration: none;
+}
+
+a:hover {
+  color: #0e7490;
+}
+
+/* Ամբողջ էջը՝ առանց հորիզոնական scroll */
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+/* React-root կոնտեյներ */
+#root {
+  width: 100%;
+  min-height: 100%;
+}
+
+/* Ֆոնը տալիս է Layout-ը, body-ն մաքուր է մնում */
+body {
+  min-width: 0;
+  min-height: 100svh;
+  background: transparent;
+  color: #0b1220;
+}
+
+/* Վերնագրի օրինակ (եթե Tailwind-ով override չանես) */
+h1 {
+  font-size: 3.2em;
+  line-height: 1.1;
+}
+
+/* GLOBAL button reset.
+   Այստեղ այլևս չկա ֆոն, padding, radius.
+   Դիզայնը տալիս ես Tailwind class-երով կամ .btn-* class-երով:
+*/
+button {
+  font-family: inherit;
+  font-size: 1rem;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: inherit;
+}
+
+/* Վերաօգտագործվող կոճակների դասեր */
+@layer components {
+
+  /* Հիմնական CTA կոճակ */
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-2xl px-4 py-2 bg-gradient-to-r from-[#22d3ee] to-[#2dd4bf] text-white text-[12px] font-semibold shadow-md transition hover:brightness-110 disabled:opacity-60;
+  }
+
+  /* Երկրորդական բաց կոճակ */
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-2xl px-4 py-2 bg-white text-slate-700 text-[12px] font-semibold border border-slate-200 transition hover:bg-slate-50;
+  }
+
+  /* Icon-only կոճակներ՝ աստղեր, крестик, սլաքներ և այլն */
+  .icon-btn {
+    @apply inline-flex items-center justify-center bg-transparent p-0 border-0 rounded-none shadow-none;
+  }
+}

@@ -128,8 +128,9 @@ class TripShowApiController extends Controller
             'stops:id,trip_id,position,name,addr,lat,lng,free_km,amd_per_km,max_km',
             'vehicle:id,brand,model,plate,color',
             'amenities:id,name,slug,icon',
-            'driver:id,name,number,rating',
-            'assignedDriver:id,name,number,rating',
+            // avoid selecting missing columns (number may not exist on some schemas)
+            'driver:id,name,rating',
+            'assignedDriver:id,name,rating',
             'company:id,name,rating',
         ]);
 
@@ -138,7 +139,8 @@ class TripShowApiController extends Controller
             ->where('trip_id', $trip->id)
             ->orderByDesc('id')
             ->get([
-                'id','trip_id','user_id','passenger_name','phone',
+                // phone may be absent on some deployments; avoid selecting explicitly
+                'id','trip_id','user_id','passenger_name',
                 'seats','payment','status','price_amd','meta','description',
                 'is_checked_in','checked_in_at','decided_at','decided_by_user_id',
                 'created_at','created_by_user_id','order_id',
@@ -191,7 +193,8 @@ class TripShowApiController extends Controller
             ->values();
 
         $usersById = User::whereIn('id', $userIds)
-            ->get(['id','name','number','rating']) // при желании добавь avatar/email и т.д.
+            // number/phone columns могут отсутствовать — выберем только безопасные
+            ->get(['id','name','rating'])
             ->keyBy('id')
             ->map(fn($u) => [
                 'id'   => (int)$u->id,

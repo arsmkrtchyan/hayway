@@ -6,7 +6,10 @@ namespace App\Http\Controllers\Client;
 
 use App\Http\Controllers\Controller;
 use App\Models\AmenityCategory;
+use App\Models\Rating;
+use App\Models\RideRequest;
 use App\Models\Trip;
+use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -65,14 +68,15 @@ class ExploreController extends Controller
 
         if (!$hasAnyFilter) {
             return Inertia::render('Client/Explore', [
-                'filters' => $this->filtersOut($r),
-                'trips' => $this->emptyPaginator(),
-                'amenityFilters' => $amenityFilters,
-                'meta' => ['match_radius_km' => null],
-            ]);
-        }
+            'filters' => $this->filtersOut($r),
+            'trips' => $this->emptyPaginator(),
+            'amenityFilters' => $amenityFilters,
+            'meta' => ['match_radius_km' => null],
+            'stats' => $this->platformStats(),
+        ]);
+    }
 
-        // ===== построение запроса =====
+    // ===== построение запроса =====
         $q = Trip::query();
         $this->applyCommon($q, $r);
 
@@ -117,6 +121,7 @@ class ExploreController extends Controller
             'trips' => $trips,
             'amenityFilters' => $amenityFilters,
             'meta' => ['match_radius_km' => $searchRadius],
+            'stats' => $this->platformStats(),
         ]);
     }
 
@@ -638,5 +643,40 @@ class ExploreController extends Controller
     {
         // используется лишь для «мягкой» сортировки по rank_type, если он в SELECT
         return true;
+    }
+
+    private function platformStats(): array
+    {
+        $now = Carbon::now();
+        $from = $now->copy()->subDays(30);
+
+        $ratings = Rating::selectRaw('COALESCE(AVG(rating),0) as avg_rating, COUNT(*) as total_reviews')->first();
+        $avgRating = round((float)($ratings->avg_rating ?? 0), 2);
+        $totalReviews = (int)($ratings->total_reviews ?? 0);
+
+        $driverRating = User::where('role', 'driver')->whereNotNull('rating')->avg('rating');
+        $passengerRating = User::where('role', 'client')->whereNotNull('rating')->avg('rating');
+
+        $trips30 = Trip::where('status', 'published')
+            ->whereBetween('departure_at', [$from, $now])
+            ->count();
+
+        $requestsFunnel = RideRequest::whereBetween('created_at', [$from, $now])
+            ->selectRaw('status, COUNT(*) as c')
+            ->groupBy('status')
+            ->pluck('c', 'status');
+
+        $accepted = (int)($requestsFunnel['accepted'] ?? 0);
+        $totalReq = array_sum($requestsFunnel->toArray());
+        $acceptRate = $totalReq > 0 ? round(($accepted / $totalReq) * 100, 1) : 0.0;
+
+        return [
+            'avg_rating' => $avgRating,
+            'total_reviews' => $totalReviews,
+            'driver_rating' => round((float)($driverRating ?? $avgRating), 2),
+            'passenger_rating' => round((float)($passengerRating ?? $avgRating), 2),
+            'trips_30d' => (int)$trips30,
+            'accept_rate' => $acceptRate,
+        ];
     }
 }

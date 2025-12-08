@@ -133,6 +133,7 @@ Route::middleware('auth')->group(function () {
 //
 //Route::pattern('company', '[0-9]+');
 Route::get('/', fn() => Inertia::render('Welcome'));
+Route::get('/bus-seat-designer', fn() => Inertia::render('BusSeatDesigner'))->name('demo.bus_seat_designer');
 Route::get('/dashboard', fn() => Inertia::render('Dashboard'))
     ->middleware(['auth', 'verified'])->name('dashboard');
 
