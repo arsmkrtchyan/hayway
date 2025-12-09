@@ -35,6 +35,7 @@ use App\Http\Controllers\Client\ExploreController;
 use App\Http\Controllers\Driver\TripStopsController;
 use App\Http\Controllers\Client\RequestsController;
 use App\Http\Controllers\Chat\{ChatApiController,ChatPageController};
+use App\Http\Controllers\Client\ProjectReviewController;
 use App\Http\Controllers\Driver\TripShowController as DriverTripShowController;
 use App\Http\Controllers\Driver\TripRatingController as DriverTripRatingController;
 use  App\Http\Controllers\Driver\NotificationsController as DriverNotificationsController;
@@ -98,6 +99,10 @@ Route::middleware(['auth','verified'])->group(function () {
     // заявка «добавить остановку в маршрут»
     Route::post('/trips/{trip}/stop-request', [ClientTripStopRequestsController::class, 'store'])
         ->name('client.trip_stop.request.store');
+
+    // Հարթակի ընդհանուր կարծիքներ (ոչ առանձին երթուղիների համար)
+    Route::post('/project-reviews', [ProjectReviewController::class, 'store'])
+        ->name('project-reviews.store');
 });
 Route::middleware(['auth','verified','approved','can:driver'])
     ->prefix('driver')->name('driver.')->group(function () {

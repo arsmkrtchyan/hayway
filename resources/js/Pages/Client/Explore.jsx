@@ -46,7 +46,7 @@ const buildPayload = (search) => {
 };
 
 export default function Explore() {
-    const { trips, filters, amenityFilters, stats, auth } = usePage().props;
+    const { trips, filters, amenityFilters, stats, auth, projectReviews } = usePage().props;
     const tripsList = useMemo(() => (Array.isArray(trips?.data) ? trips.data : []), [trips]);
     const hasFilters = useMemo(() => {
         const f = filters || {};
@@ -203,7 +203,7 @@ export default function Explore() {
                                     <PopularRoutesSection />
                                 </section>
                                 <section id="reviews-section" className="scroll-mt-32">
-                                    <ReviewsSection />
+                                    <ReviewsSection reviews={projectReviews?.items || []} summary={projectReviews?.summary} />
                                 </section>
                                 <section id="stats-section" className="scroll-mt-32">
                                     <StatsSection stats={stats} />

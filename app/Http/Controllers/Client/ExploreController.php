@@ -6,7 +6,7 @@ namespace App\Http\Controllers\Client;
 
 use App\Http\Controllers\Controller;
 use App\Models\AmenityCategory;
-use App\Models\Rating;
+use App\Models\ProjectReview;
 use App\Models\RideRequest;
 use App\Models\Trip;
 use App\Models\User;
@@ -35,6 +35,9 @@ class ExploreController extends Controller
                     'id' => $a->id, 'name' => $a->name, 'slug' => $a->slug, 'icon' => $a->icon
                 ])->values(),
             ])->values();
+
+        $projectReviews = $this->projectReviewPayload();
+        $stats = $this->platformStats($projectReviews['summary'] ?? null);
 
         // ===== входные параметры =====
         $fromLat = $this->f($r->get('from_lat'));
@@ -68,15 +71,16 @@ class ExploreController extends Controller
 
         if (!$hasAnyFilter) {
             return Inertia::render('Client/Explore', [
-            'filters' => $this->filtersOut($r),
-            'trips' => $this->emptyPaginator(),
-            'amenityFilters' => $amenityFilters,
-            'meta' => ['match_radius_km' => null],
-            'stats' => $this->platformStats(),
-        ]);
-    }
+                'filters' => $this->filtersOut($r),
+                'trips' => $this->emptyPaginator(),
+                'amenityFilters' => $amenityFilters,
+                'meta' => ['match_radius_km' => null],
+                'stats' => $stats,
+                'projectReviews' => $projectReviews,
+            ]);
+        }
 
-    // ===== построение запроса =====
+        // ===== построение запроса =====
         $q = Trip::query();
         $this->applyCommon($q, $r);
 
@@ -121,7 +125,8 @@ class ExploreController extends Controller
             'trips' => $trips,
             'amenityFilters' => $amenityFilters,
             'meta' => ['match_radius_km' => $searchRadius],
-            'stats' => $this->platformStats(),
+            'stats' => $stats,
+            'projectReviews' => $projectReviews,
         ]);
     }
 
@@ -645,14 +650,65 @@ class ExploreController extends Controller
         return true;
     }
 
-    private function platformStats(): array
+    private function projectReviewPayload(): array
+    {
+        $aggregate = ProjectReview::query()
+            ->where('is_public', true)
+            ->selectRaw('COALESCE(AVG(rating),0) as avg_rating, COUNT(*) as total_reviews')
+            ->first();
+
+        $avgRating = round((float)($aggregate->avg_rating ?? 0), 2);
+        $totalReviews = (int)($aggregate->total_reviews ?? 0);
+        $usersCount = (int)User::count();
+
+        $reviews = ProjectReview::with(['user:id,name,role,avatar_path'])
+            ->where('is_public', true)
+            ->orderByDesc('updated_at')
+            ->limit(30)
+            ->get()
+            ->map(function (ProjectReview $review) {
+                return [
+                    'id' => (int)$review->id,
+                    'rating' => (float)$review->rating,
+                    'comment' => (string)$review->comment,
+                    'date' => optional($review->created_at)->toDateString(),
+                    'user' => $review->user ? [
+                        'id' => (int)$review->user->id,
+                        'name' => (string)$review->user->name,
+                        'role' => $review->user->role ?? null,
+                        'avatar_url' => $review->user->avatar_path ? asset('storage/' . $review->user->avatar_path) : null,
+                    ] : null,
+                ];
+            })->values();
+
+        return [
+            'summary' => [
+                'avg_rating' => $avgRating,
+                'total_reviews' => $totalReviews,
+                'users_count' => $usersCount,
+            ],
+            'items' => $reviews,
+        ];
+    }
+
+    private function platformStats(?array $reviewSummary = null): array
     {
         $now = Carbon::now();
         $from = $now->copy()->subDays(30);
 
-        $ratings = Rating::selectRaw('COALESCE(AVG(rating),0) as avg_rating, COUNT(*) as total_reviews')->first();
-        $avgRating = round((float)($ratings->avg_rating ?? 0), 2);
-        $totalReviews = (int)($ratings->total_reviews ?? 0);
+        if ($reviewSummary === null) {
+            $reviewAggregate = ProjectReview::query()
+                ->where('is_public', true)
+                ->selectRaw('COALESCE(AVG(rating),0) as avg_rating, COUNT(*) as total_reviews')
+                ->first();
+            $avgRating = round((float)($reviewAggregate->avg_rating ?? 0), 2);
+            $totalReviews = (int)($reviewAggregate->total_reviews ?? 0);
+            $usersTotal = (int)User::count();
+        } else {
+            $avgRating = round((float)($reviewSummary['avg_rating'] ?? 0), 2);
+            $totalReviews = (int)($reviewSummary['total_reviews'] ?? 0);
+            $usersTotal = (int)($reviewSummary['users_count'] ?? User::count());
+        }
 
         $driverRating = User::where('role', 'driver')->whereNotNull('rating')->avg('rating');
         $passengerRating = User::where('role', 'client')->whereNotNull('rating')->avg('rating');
@@ -673,6 +729,7 @@ class ExploreController extends Controller
         return [
             'avg_rating' => $avgRating,
             'total_reviews' => $totalReviews,
+            'users_total' => $usersTotal,
             'driver_rating' => round((float)($driverRating ?? $avgRating), 2),
             'passenger_rating' => round((float)($passengerRating ?? $avgRating), 2),
             'trips_30d' => (int)$trips30,
