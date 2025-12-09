@@ -1,8 +1,8 @@
 // resources/js/Pages/Explore/ReviewsSection.jsx
-import React, { useEffect, useMemo, useRef, useState, memo } from "react";
+import { useEffect, useMemo, useRef, useState, memo } from "react";
 import { useForm, usePage } from "@inertiajs/react";
 import { Star, Check } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 
 const SLOTS = 3;
 const STAR_COUNT = 5;
@@ -18,6 +18,11 @@ const GRADIENTS = [
 
 const cardTransition = { duration: 0.6, ease: [0.22, 0.61, 0.36, 1] };
 const headerTransition = { duration: 0.45, ease: [0.16, 1, 0.3, 1] };
+const card3d = {
+    initial: { opacity: 0, rotateY: -24, y: 18, z: 40, scale: 0.96 },
+    animate: { opacity: 1, rotateY: 0, y: 0, z: 0, scale: 1 },
+    exit: { opacity: 0, rotateY: 18, y: -12, z: -60, scale: 0.94 },
+};
 
 const roleLabel = (role) => {
     switch (role) {
@@ -39,6 +44,15 @@ const getDisplayRating = (raw) => {
     return Math.round(normalized * 2) / 2;
 };
 
+const getReviewKey = (review, fallback = 0) => {
+    if (!review) return `empty-${fallback}`;
+    if (review.id !== undefined && review.id !== null) return `review-${review.id}`;
+    if (review.user?.id && review.date) return `user-${review.user.id}-${review.date}`;
+    if (review.date) return `date-${review.date}-${fallback}`;
+    const snippet = (review.comment || "").slice(0, 18);
+    return `slot-${fallback}-${snippet || "text"}`;
+};
+
 const ReviewsGrid = memo(function ReviewsGrid({ reviews }) {
     if (!reviews?.length) {
         return (
@@ -48,73 +62,83 @@ const ReviewsGrid = memo(function ReviewsGrid({ reviews }) {
         );
     }
 
+    const slotCount = Math.min(SLOTS, reviews.length);
+    const slots = Array.from({ length: slotCount }, (_, slot) => reviews.find((r) => r.__slot === slot) || null);
+
     return (
-        <div className="mt-5 grid gap-4 md:auto-rows-fr md:grid-cols-3">
-            {reviews.map((r, idx) => {
-                const displayRating = getDisplayRating(r.rating);
-                const fullStars = Math.floor(displayRating);
-                const hasHalfStar = displayRating - fullStars === 0.5;
-                const name = r.user?.name || "HayWay օգտատեր";
-                const avatarUrl = r.user?.avatar_url || null;
-                const subtitle = r.user?.role ? roleLabel(r.user.role) : "Օգտատեր";
-                const avatarBg = GRADIENTS[(r.id ?? idx) % GRADIENTS.length];
-                const date = r.date || "";
-                const cardKey = `${r.__slot}-${r.id ?? idx}-${date}-${r.comment?.slice(0, 12) || ""}`;
+        <LayoutGroup>
+            <div className="mt-5 grid gap-4 md:auto-rows-fr md:grid-cols-3" style={{ perspective: 1400 }}>
+                {slots.map((slotReview, slot) => {
+                    const displayRating = getDisplayRating(slotReview?.rating);
+                    const fullStars = Math.floor(displayRating);
+                    const hasHalfStar = displayRating - fullStars === 0.5;
+                    const name = slotReview?.user?.name || "HayWay օգտատեր";
+                    const avatarUrl = slotReview?.user?.avatar_url || null;
+                    const subtitle = slotReview?.user?.role ? roleLabel(slotReview.user.role) : "Օգտատեր";
+                    const avatarBg = GRADIENTS[(slotReview?.id ?? slotReview?.__index ?? slot) % GRADIENTS.length];
+                    const date = slotReview?.date || "";
+                    const cardKey = getReviewKey(slotReview, slotReview?.__index ?? slot);
 
-                return (
-                    <AnimatePresence key={cardKey} mode="popLayout" initial={false}>
-                        <motion.div
-                            key={cardKey}
-                            layout
-                            initial={{ opacity: 0, y: 16 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -16 }}
-                            transition={{ ...cardTransition, layout: { type: "spring", stiffness: 320, damping: 28 } }}
-                            className="flex h-full flex-col rounded-2xl border border-cyan-200/60 bg-white p-3 text-left shadow-sm shadow-cyan-100/40 transition-transform duration-150 hover:-translate-y-1"
-                        >
-                            <div className="mb-1.5 flex items-start justify-between gap-2">
-                                <div className="flex items-center gap-1 text-[11px]">
-                                    {STARS.map((_, i) => {
-                                        const index = i + 1;
-                                        let type = "empty";
-                                        if (index <= fullStars) type = "full";
-                                        else if (index === fullStars + 1 && hasHalfStar) type = "half";
+                    return (
+                        <AnimatePresence mode="wait" initial={false} key={slot}>
+                            {slotReview && (
+                                <motion.div
+                                    key={cardKey}
+                                    layout
+                                    layoutId={cardKey}
+                                    initial={card3d.initial}
+                                    animate={card3d.animate}
+                                    exit={card3d.exit}
+                                    transition={{ ...cardTransition, layout: { type: "spring", stiffness: 340, damping: 32, mass: 0.72 } }}
+                                    className="flex h-full flex-col rounded-2xl border border-cyan-200/60 bg-white p-3 text-left shadow-lg shadow-cyan-100/50 ring-1 ring-transparent transition-transform duration-200 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-cyan-100/70"
+                                    style={{ transformStyle: "preserve-3d" }}
+                                    whileHover={{ rotateX: -2, rotateY: 4, scale: 1.01 }}
+                                >
+                                    <div className="mb-1.5 flex items-start justify-between gap-2">
+                                        <div className="flex items-center gap-1 text-[11px]">
+                                            {STARS.map((_, i) => {
+                                                const index = i + 1;
+                                                let type = "empty";
+                                                if (index <= fullStars) type = "full";
+                                                else if (index === fullStars + 1 && hasHalfStar) type = "half";
 
-                                        return (
-                                            <div key={index} className="relative h-3 w-3">
-                                                <Star className="h-3 w-3 text-amber-200" />
-                                                {type === "full" && <Star className="absolute inset-0 h-3 w-3 fill-amber-300 text-amber-300" />}
-                                                {type === "half" && (
-                                                    <div className="absolute left-0 top-0 h-full w-1/2 overflow-hidden">
-                                                        <Star className="h-3 w-3 fill-amber-300 text-amber-300" />
+                                                return (
+                                                    <div key={index} className="relative h-3 w-3">
+                                                        <Star className="h-3 w-3 text-amber-200" />
+                                                        {type === "full" && <Star className="absolute inset-0 h-3 w-3 fill-amber-300 text-amber-300" />}
+                                                        {type === "half" && (
+                                                            <div className="absolute left-0 top-0 h-full w-1/2 overflow-hidden">
+                                                                <Star className="h-3 w-3 fill-amber-300 text-amber-300" />
+                                                            </div>
+                                                        )}
                                                     </div>
-                                                )}
-                                            </div>
-                                        );
-                                    })}
-                                    <span className="ml-1 text-[10px] text-slate-500">({displayRating.toFixed(1)}/5)</span>
-                                </div>
-                                <div className="text-[10px] text-slate-400">{date}</div>
-                            </div>
+                                                );
+                                            })}
+                                            <span className="ml-1 text-[10px] text-slate-500">({displayRating.toFixed(1)}/5)</span>
+                                        </div>
+                                        <div className="text-[10px] text-slate-400">{date}</div>
+                                    </div>
 
-                            <p className="flex-1 text-[12px] leading-relaxed text-slate-800">“{r.comment}”</p>
+                                    <p className="flex-1 text-[12px] leading-relaxed text-slate-800">“{slotReview.comment}”</p>
 
-                            <div className="mt-2.5 flex items-center gap-3">
-                                {avatarUrl ? (
-                                    <img src={avatarUrl} alt={name} className="h-9 w-9 rounded-full object-cover shadow-md shadow-cyan-300/40" />
-                                ) : (
-                                    <div className={`flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-tr ${avatarBg} text-[11px] font-semibold text-white shadow-md shadow-cyan-300/40`}>{getInitial(name)}</div>
-                                )}
-                                <div>
-                                    <div className="text-[12px] font-semibold text-slate-900">{name}</div>
-                                    <div className="text-[11px] text-slate-500">{subtitle}</div>
-                                </div>
-                            </div>
-                        </motion.div>
-                    </AnimatePresence>
-                );
-            })}
-        </div>
+                                    <div className="mt-2.5 flex items-center gap-3">
+                                        {avatarUrl ? (
+                                            <img src={avatarUrl} alt={name} className="h-9 w-9 rounded-full object-cover shadow-md shadow-cyan-300/40" />
+                                        ) : (
+                                            <div className={`flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-tr ${avatarBg} text-[11px] font-semibold text-white shadow-md shadow-cyan-300/40`}>{getInitial(name)}</div>
+                                        )}
+                                        <div>
+                                            <div className="text-[12px] font-semibold text-slate-900">{name}</div>
+                                            <div className="text-[11px] text-slate-500">{subtitle}</div>
+                                        </div>
+                                    </div>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                    );
+                })}
+            </div>
+        </LayoutGroup>
     );
 });
 
@@ -138,15 +162,11 @@ export default function ReviewsSection({ reviews = [], summary }) {
         setLocalSummary(summary || { avg_rating: 0, total_reviews: 0, users_count: 0 });
     }, [summary]);
 
-    const buildInitialSlots = React.useCallback(() => {
-        const count = Math.min(SLOTS, Array.isArray(localReviews) ? localReviews.length : 0);
-        return Array.from({ length: count }, (_, i) => i);
-    }, [localReviews]);
-
     const [uiMode, setUiMode] = useState("normal");
     const thanksTimerRef = useRef(null);
-    const [slotIndices, setSlotIndices] = useState(() => buildInitialSlots());
-    const slotPointerRef = useRef(0);
+    const [slotIndices, setSlotIndices] = useState([]);
+    const nextReviewRef = useRef(0);
+    const slotCycleRef = useRef(0);
 
     useEffect(
         () => () => {
@@ -156,41 +176,52 @@ export default function ReviewsSection({ reviews = [], summary }) {
     );
 
     useEffect(() => {
-        const initial = buildInitialSlots();
+        const len = Array.isArray(localReviews) ? localReviews.length : 0;
+        if (len === 0) {
+            setSlotIndices([]);
+            nextReviewRef.current = 0;
+            slotCycleRef.current = 0;
+            return;
+        }
+        const count = Math.min(SLOTS, len);
+        const initial = Array.from({ length: count }, (_, i) => i % len);
         setSlotIndices(initial);
-        slotPointerRef.current = 0;
-    }, [buildInitialSlots]);
+        nextReviewRef.current = count % len;
+        slotCycleRef.current = 0;
+    }, [localReviews]);
 
     useEffect(() => {
         const len = Array.isArray(localReviews) ? localReviews.length : 0;
-        if (len <= 1) return;
+        const count = Math.min(SLOTS, len);
+        if (len <= 1 || count === 0) return;
 
         const intervalId = setInterval(() => {
-            setSlotIndices(() => {
-                const currentLen = Array.isArray(localReviews) ? localReviews.length : 0;
-                if (currentLen === 0) return [];
-                const slotsCount = Math.min(SLOTS, currentLen);
-                const nextOffset = (slotPointerRef.current + 1) % currentLen;
-                slotPointerRef.current = nextOffset;
-
-                return Array.from({ length: slotsCount }, (_, i) => (nextOffset + i) % currentLen);
+            setSlotIndices((prev) => {
+                if (!Array.isArray(prev) || prev.length === 0) return prev;
+                const updated = [...prev];
+                const targetSlot = slotCycleRef.current % updated.length;
+                const nextIndex = nextReviewRef.current % len;
+                updated[targetSlot] = nextIndex;
+                slotCycleRef.current = (targetSlot + 1) % updated.length;
+                nextReviewRef.current = (nextIndex + 1) % len;
+                return updated;
             });
-        }, 5000);
+        }, 3600);
 
         return () => clearInterval(intervalId);
     }, [localReviews]);
 
-    const visibleSlots = useMemo(
-        () =>
-            slotIndices
-                .map((reviewIndex, slot) => {
-                    const r = localReviews?.[reviewIndex];
-                    if (!r) return null;
-                    return { ...r, __slot: slot };
-                })
-                .filter(Boolean),
-        [slotIndices, localReviews],
-    );
+    const visibleSlots = useMemo(() => {
+        const len = Array.isArray(localReviews) ? localReviews.length : 0;
+        if (len === 0 || !Array.isArray(slotIndices)) return [];
+        return slotIndices
+            .map((reviewIndex, slot) => {
+                const r = localReviews?.[reviewIndex];
+                if (!r) return null;
+                return { ...r, __slot: slot, __index: reviewIndex };
+            })
+            .filter(Boolean);
+    }, [slotIndices, localReviews]);
 
     const avgRating = getDisplayRating(localSummary?.avg_rating ?? 0);
     const totalReviews = Number.isFinite(localSummary?.total_reviews) ? localSummary.total_reviews : 0;
@@ -247,6 +278,7 @@ export default function ReviewsSection({ reviews = [], summary }) {
                         : null,
                 };
                 setLocalReviews((prev) => [newReview, ...prev]);
+                setActiveIndex(0);
                 setLocalSummary((prev) => {
                     const count = Number.isFinite(prev?.total_reviews) ? prev.total_reviews : 0;
                     const avg = Number.isFinite(prev?.avg_rating) ? prev.avg_rating : 0;
