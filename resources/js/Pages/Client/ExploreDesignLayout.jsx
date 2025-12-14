@@ -137,8 +137,40 @@ function Header({ user, headerCollapsed }) {
                 <div aria-hidden className="pointer-events-none absolute -top-8 left-1/2 hidden h-20 w-56 -translate-x-1/2 rounded-full bg-[radial-gradient(circle,_rgba(59,130,246,0.32)_0%,_transparent_65%)] blur-2xl md:block" />
                 <div aria-hidden className="pointer-events-none absolute -bottom-8 right-10 hidden h-16 w-40 rounded-full bg-[radial-gradient(circle,_rgba(45,212,191,0.26)_0%,_transparent_65%)] blur-2xl lg:block" />
 
-                <div className="relative flex items-center justify-between gap-4">
-                    <LogoBrand />
+                <div className="relative flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                    <div className="flex w-full items-center justify-between gap-3 sm:w-auto sm:gap-4">
+                        <LogoBrand />
+
+                        <motion.div initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.35, delay: 0.25, ease: "easeOut" }} className="flex items-center gap-2">
+                            <div className="hidden items-center gap-2 sm:flex">
+                                {!user && (
+                                    <a href="#login" className="rounded-full bg-gradient-to-r from-cyan-400 via-emerald-400 to-sky-400 px-5 py-2 text-xs font-semibold text-white shadow-[0_0_22px_rgba(34,197,235,0.9)]">
+                                        Մուտք
+                                    </a>
+                                )}
+
+                                {user && (
+                                    <div className="relative flex cursor-pointer select-none items-center gap-2" onMouseEnter={() => setShowRating(true)} onMouseLeave={() => setShowRating(false)}>
+                                        <img src={avatarUrl} alt={passengerName} className="h-8 w-8 rounded-full object-cover" />
+                                        <div className="flex flex-col leading-tight">
+                                            <span className="max-w-[140px] truncate text-xs font-medium text-slate-800">{passengerName}</span>
+                                            <span className="text-[10px] text-emerald-600">Ուղևորի գնահատական (demo)</span>
+                                        </div>
+                                        <AnimatePresence>{showRating && <RatingPopup />}</AnimatePresence>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="flex items-center gap-2 sm:hidden">
+                                {!user && (
+                                    <a href="#login" className="inline-flex items-center rounded-full bg-gradient-to-r from-cyan-400 to-emerald-400 px-3 py-1.5 text-[11px] font-semibold text-white shadow-[0_0_18px_rgba(45,212,191,0.8)]">
+                                        Մուտք
+                                    </a>
+                                )}
+                                {user && <button className="max-w-[120px] truncate rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-800">{passengerName}</button>}
+                            </div>
+                        </motion.div>
+                    </div>
 
                     <nav className="hidden flex-1 justify-center sm:flex">
                         <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.2, ease: "easeOut" }} className="inline-flex items-center gap-1.5 rounded-full bg-white/80 px-1.5 py-1 text-[11px] shadow-sm ring-1 ring-slate-200/70 backdrop-blur">
@@ -150,37 +182,29 @@ function Header({ user, headerCollapsed }) {
                             ))}
                         </motion.div>
                     </nav>
-
-                    <motion.div initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.35, delay: 0.25, ease: "easeOut" }} className="flex items-center gap-2">
-                        <div className="hidden items-center gap-2 sm:flex">
-                            {!user && (
-                                <a href="#login" className="rounded-full bg-gradient-to-r from-cyan-400 via-emerald-400 to-sky-400 px-5 py-2 text-xs font-semibold text-white shadow-[0_0_22px_rgba(34,197,235,0.9)]">
-                                    Մուտք
-                                </a>
-                            )}
-
-                            {user && (
-                                <div className="relative flex cursor-pointer select-none items-center gap-2" onMouseEnter={() => setShowRating(true)} onMouseLeave={() => setShowRating(false)}>
-                                    <img src={avatarUrl} alt={passengerName} className="h-8 w-8 rounded-full object-cover" />
-                                    <div className="flex flex-col leading-tight">
-                                        <span className="max-w-[140px] truncate text-xs font-medium text-slate-800">{passengerName}</span>
-                                        <span className="text-[10px] text-emerald-600">Ուղևորի գնահատական (demo)</span>
-                                    </div>
-                                    <AnimatePresence>{showRating && <RatingPopup />}</AnimatePresence>
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="flex items-center gap-1 sm:hidden">
-                            {!user && (
-                                <a href="#login" className="inline-flex items-center rounded-full bg-gradient-to-r from-cyan-400 to-emerald-400 px-3 py-1.5 text-[11px] font-semibold text-white shadow-[0_0_18px_rgba(45,212,191,0.8)]">
-                                    Մուտք
-                                </a>
-                            )}
-                            {user && <button className="max-w-[120px] truncate rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-800">{passengerName}</button>}
-                        </div>
-                    </motion.div>
                 </div>
+
+                <nav className="sm:hidden">
+                    <motion.div
+                        initial={{ opacity: 0, y: -6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.3, delay: 0.1, ease: "easeOut" }}
+                        className="-mx-1 flex w-full items-center gap-1 overflow-x-auto rounded-2xl bg-white/95 px-2.5 py-2 text-[11px] shadow-sm ring-1 ring-slate-200/70"
+                        style={{ WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}
+                    >
+                        {SECTION_LINKS.map(({ key, label, icon: Icon }) => (
+                            <button
+                                key={key}
+                                type="button"
+                                onClick={() => scrollToId(key)}
+                                className="inline-flex min-w-[110px] items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 font-medium text-slate-700 transition-colors hover:border-cyan-200 hover:text-cyan-800"
+                            >
+                                <Icon className="h-3.5 w-3.5 shrink-0" />
+                                <span className="truncate">{label}</span>
+                            </button>
+                        ))}
+                    </motion.div>
+                </nav>
             </motion.div>
         </header>
     );

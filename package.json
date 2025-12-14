@@ -28,6 +28,9 @@
         "@dnd-kit/sortable": "^10.0.0",
         "@dnd-kit/utilities": "^3.2.2",
         "@inertiajs/inertia": "^0.11.1",
+        "@react-spring/web": "^10.0.3",
+        "@react-three/drei": "^10.7.7",
+        "@react-three/fiber": "^9.4.2",
         "dayjs": "^1.11.18",
         "ext-intl": "^4.0.0",
         "framer-motion": "^12.23.25",
@@ -38,6 +41,7 @@
         "qrcode.react": "^4.2.0",
         "react-leaflet": "^5.0.0",
         "react-qr-code": "^2.0.18",
-        "recharts": "^3.2.1"
+        "recharts": "^3.2.1",
+        "three": "^0.181.2"
     }
 }

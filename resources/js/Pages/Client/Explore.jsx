@@ -269,9 +269,9 @@ function HeroSearchForm({ onSearch, search, onChange, onPassengersChange, onSwap
                 e.preventDefault();
                 onSearch?.();
             }}
-            className="flex w-full flex-col gap-2 rounded-full border border-cyan-100/70 bg-white/95 px-3 py-2 shadow-[0_14px_40px_rgba(34,211,238,0.25)] backdrop-blur xl:flex-row xl:items-center"
+            className="flex w-full flex-col gap-3 rounded-3xl border border-cyan-100/70 bg-white/95 px-3.5 py-3 shadow-[0_14px_40px_rgba(34,211,238,0.25)] backdrop-blur sm:gap-2.5 sm:rounded-[28px] md:px-4 md:py-3.5 xl:flex-row xl:items-center xl:rounded-full"
         >
-            <div className="flex min-w-0 flex-1 items-stretch gap-2">
+            <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-stretch sm:gap-2.5">
                 <AddressInput
                     side="from"
                     value={search?.from}
@@ -302,11 +302,11 @@ function HeroSearchForm({ onSearch, search, onChange, onPassengersChange, onSwap
                 />
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
-                <div className="flex h-12 items-center">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center xl:flex-nowrap">
+                <div className="flex h-12 w-full items-center sm:w-auto">
                     <DatePickerDemo value={search?.date} onChange={(date) => handleChange("date", date)} />
                 </div>
-                <div className="flex h-12 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 shadow-sm">
+                <div className="flex h-12 w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 shadow-sm sm:w-auto sm:justify-start sm:gap-2 sm:rounded-full">
                     <UsersIcon className="h-4 w-4 text-emerald-700" />
                     <div className="flex items-center gap-2">
                         <button
@@ -326,7 +326,7 @@ function HeroSearchForm({ onSearch, search, onChange, onPassengersChange, onSwap
                         </button>
                     </div>
                 </div>
-                <button type="submit" className="inline-flex h-12 items-center gap-2 rounded-full bg-gradient-to-r from-[rgb(34,211,238)] to-[rgb(45,212,191)] px-5 text-sm font-semibold text-white shadow-[0_12px_28px_rgba(45,212,191,0.6)]">
+                <button type="submit" className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[rgb(34,211,238)] to-[rgb(45,212,191)] px-5 text-sm font-semibold text-white shadow-[0_12px_28px_rgba(45,212,191,0.6)] sm:w-auto sm:justify-start">
                     <Search className="h-4 w-4" />
                     Որոնել
                 </button>
@@ -458,8 +458,8 @@ function AddressInput({ side, value, lat, lng, placeholder, onChange, onOpenMap 
     };
 
     return (
-        <div className="relative flex flex-1">
-            <div className="flex h-12 min-w-[190px] flex-1 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 shadow-sm focus-within:border-emerald-400">
+        <div className="relative flex w-full flex-1">
+            <div className="flex h-12 w-full min-w-0 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 shadow-sm focus-within:border-emerald-400 sm:rounded-full sm:px-4">
                 <MapPin className="h-4 w-4 text-emerald-700" />
                 <input
                     className="w-full border-none bg-transparent text-sm placeholder-slate-400 focus:outline-none"
