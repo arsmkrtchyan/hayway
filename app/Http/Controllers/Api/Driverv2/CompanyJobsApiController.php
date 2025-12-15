@@ -24,6 +24,10 @@ class CompanyJobsApiController extends Controller
             ->with([
                 'company:id,name,rating',
                 'vehicle:id,brand,model,plate',
+                'amenities' => fn($q) => $q
+                    ->orderBy('sort_order')
+                    ->orderBy('amenities.id')
+                    ->select(['amenities.id', 'amenities.name', 'amenities.slug', 'amenities.icon']),
             ])
             ->withCount([
                 'rideRequests as pending_requests_count' => fn($q) => $q->where('status', 'pending'),
@@ -86,6 +90,10 @@ class CompanyJobsApiController extends Controller
             'company:id,name,rating',
             'vehicle:id,brand,model,color,plate',
             'stops:id,trip_id,position,name,addr,lat,lng',
+            'amenities' => fn($q) => $q
+                ->orderBy('sort_order')
+                ->orderBy('amenities.id')
+                ->select(['amenities.id', 'amenities.name', 'amenities.slug', 'amenities.icon']),
         ])->loadCount([
             'rideRequests as pending_requests_count' => fn($q) => $q->where('status', 'pending'),
             'rideRequests as accepted_requests_count' => fn($q) => $q->where('status', 'accepted'),
@@ -200,6 +208,10 @@ class CompanyJobsApiController extends Controller
             ->with([
                 'company:id,name,rating',
                 'vehicle:id,brand,model,plate',
+                'amenities' => fn($q) => $q
+                    ->orderBy('sort_order')
+                    ->orderBy('amenities.id')
+                    ->select(['amenities.id', 'amenities.name', 'amenities.slug', 'amenities.icon']),
             ])
             ->withCount([
                 'rideRequests as pending_requests_count' => fn($q) => $q->where('status', 'pending'),
@@ -212,6 +224,10 @@ class CompanyJobsApiController extends Controller
             ->with([
                 'company:id,name,rating',
                 'vehicle:id,brand,model,plate',
+                'amenities' => fn($q) => $q
+                    ->orderBy('sort_order')
+                    ->orderBy('amenities.id')
+                    ->select(['amenities.id', 'amenities.name', 'amenities.slug', 'amenities.icon']),
             ])
             ->withCount([
                 'rideRequests as pending_requests_count' => fn($q) => $q->where('status', 'pending'),
@@ -226,6 +242,10 @@ class CompanyJobsApiController extends Controller
             ->with([
                 'company:id,name,rating',
                 'vehicle:id,brand,model,plate',
+                'amenities' => fn($q) => $q
+                    ->orderBy('sort_order')
+                    ->orderBy('amenities.id')
+                    ->select(['amenities.id', 'amenities.name', 'amenities.slug', 'amenities.icon']),
             ])
             ->withCount([
                 'rideRequests as pending_requests_count' => fn($q) => $q->where('status', 'pending'),
@@ -320,6 +340,10 @@ class CompanyJobsApiController extends Controller
         $trip->loadMissing([
             'company:id,name,rating',
             'vehicle:id,brand,model,plate',
+            'amenities' => fn($q) => $q
+                ->orderBy('sort_order')
+                ->orderBy('amenities.id')
+                ->select(['amenities.id', 'amenities.name', 'amenities.slug', 'amenities.icon']),
         ])->loadCount([
             'rideRequests as pending_requests_count' => fn($q) => $q->where('status', 'pending'),
             'rideRequests as accepted_requests_count' => fn($q) => $q->where('status', 'accepted'),
@@ -360,6 +384,10 @@ class CompanyJobsApiController extends Controller
         $trip->loadMissing([
             'company:id,name,rating',
             'vehicle:id,brand,model,plate',
+            'amenities' => fn($q) => $q
+                ->orderBy('sort_order')
+                ->orderBy('amenities.id')
+                ->select(['amenities.id', 'amenities.name', 'amenities.slug', 'amenities.icon']),
         ])->loadCount([
             'rideRequests as pending_requests_count' => fn($q) => $q->where('status', 'pending'),
             'rideRequests as accepted_requests_count' => fn($q) => $q->where('status', 'accepted'),
@@ -398,6 +426,14 @@ class CompanyJobsApiController extends Controller
                 'model' => $t->vehicle->model,
                 'plate' => $t->vehicle->plate,
             ] : null,
+
+            'amenity_ids' => $t->amenities?->pluck('id')->map(fn($id) => (int)$id)->values()->all() ?? [],
+            'amenities' => $t->amenities?->map(fn($a) => [
+                'id' => (int)$a->id,
+                'name' => (string)$a->name,
+                'slug' => (string)$a->slug,
+                'icon' => (string)($a->icon ?? ''),
+            ])->values()->all() ?? [],
 
             'route' => [
                 'from' => [
@@ -485,6 +521,17 @@ class CompanyJobsApiController extends Controller
             // собственный rating водителя из users
             'rating' => $me->rating,
         ];
+
+        $base['amenity_ids'] = array_values(array_map('intval', (array)($t->amenity_ids ?? [])));
+        $base['amenities'] = $t->amenities
+            ->map(fn($a) => [
+                'id' => (int)$a->id,
+                'name' => (string)$a->name,
+                'slug' => (string)$a->slug,
+                'icon' => (string)($a->icon ?? ''),
+            ])
+            ->values()
+            ->all();
 
         // vehicle с цветом (color)
         if ($t->vehicle) {
