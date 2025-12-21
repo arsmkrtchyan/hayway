@@ -128,6 +128,7 @@ export default function TripsResultsSection({ trips = [], meta, amenityOptions =
     const [amenitiesFilter, setAmenitiesFilter] = useState([]);
     const [amenitiesDraft, setAmenitiesDraft] = useState([]);
     const [showAmenitiesPanel, setShowAmenitiesPanel] = useState(false);
+    const [amenitiesPanelVersion, setAmenitiesPanelVersion] = useState(0);
 
     const normalizedTrips = useMemo(() => normalizeTrips(trips), [trips]);
     const safeTrips = useMemo(() => (Array.isArray(normalizedTrips) ? normalizedTrips : []), [normalizedTrips]);
@@ -142,6 +143,10 @@ export default function TripsResultsSection({ trips = [], meta, amenityOptions =
     useEffect(() => {
         setAmenitiesFilter((prev) => prev.filter((label) => availableAmenityLabels.includes(label)));
     }, [availableAmenityLabels]);
+
+    useEffect(() => {
+        setShowAmenitiesPanel(false);
+    }, [safeTrips.length, meta?.total]);
 
     const counts = useMemo(() => {
         if (!safeTrips.length) return { all: 0, rideshare: 0, company: 0 };
@@ -293,17 +298,18 @@ export default function TripsResultsSection({ trips = [], meta, amenityOptions =
     }, [sortMode, onlyHighRating, timeRanges, amenitiesFilter]);
 
     const openAmenitiesPanel = () => {
-        setAmenitiesDraft(amenitiesFilter);
+        setAmenitiesDraft([...amenitiesFilter]);
+        setAmenitiesPanelVersion((v) => v + 1);
         setShowAmenitiesPanel(true);
     };
 
     const handleAmenitiesConfirm = () => {
-        setAmenitiesFilter(amenitiesDraft);
+        setAmenitiesFilter([...amenitiesDraft]);
         setShowAmenitiesPanel(false);
     };
 
     const handleAmenitiesCancel = () => {
-        setAmenitiesDraft(amenitiesFilter);
+        setAmenitiesDraft([...amenitiesFilter]);
         setShowAmenitiesPanel(false);
     };
 
@@ -353,16 +359,15 @@ export default function TripsResultsSection({ trips = [], meta, amenityOptions =
                     />
 
                     <div className="flex min-h-[220px] flex-col gap-3">
-                        {!mainTrip ? (
-                            <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-emerald-200 bg-emerald-50/70 px-4 py-6 text-center text-xs text-emerald-900/80">
-                                <div className="space-y-1">
-                                    <p className="text-sm font-semibold">Ներկայումս ուղևորություններ չկան։</p>
-                                    <p className="text-[11px]">Փոխիր օրը, ուղղությունը կամ filter-ները՝ նոր առաջարկներ տեսնելու համար։</p>
-                                </div>
-                            </div>
-                        ) : (
-                            <>
-                                {showAmenitiesPanel ? (
+                        <AnimatePresence mode="wait">
+                            {showAmenitiesPanel ? (
+                                <motion.div
+                                    key={`amenities-panel-${amenitiesPanelVersion}`}
+                                    initial={{ opacity: 0, y: 10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: -10 }}
+                                    transition={{ duration: 0.2, ease: "easeOut" }}
+                                >
                                     <AmenitiesPanel
                                         options={availableAmenityLabels}
                                         draftAmenities={amenitiesDraft}
@@ -370,31 +375,45 @@ export default function TripsResultsSection({ trips = [], meta, amenityOptions =
                                         onConfirm={handleAmenitiesConfirm}
                                         onCancel={handleAmenitiesCancel}
                                     />
-                                ) : (
-                                    <>
-                                        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, ease: "easeOut", delay: 0.03 }} className="relative overflow-hidden rounded-3xl border border-emerald-100 bg-gradient-to-br from-sky-50 via-white to-emerald-50 p-4 shadow-sm transition-shadow hover:shadow-md">
-                                            <TripRow t={mainTrip} variant="big" />
+                                </motion.div>
+                            ) : !mainTrip ? (
+                                <motion.div
+                                    key="no-trips"
+                                    initial={{ opacity: 0, y: 8 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: -8 }}
+                                    transition={{ duration: 0.2, ease: "easeOut" }}
+                                    className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-emerald-200 bg-emerald-50/70 px-4 py-6 text-center text-xs text-emerald-900/80"
+                                >
+                                    <div className="space-y-1">
+                                        <p className="text-sm font-semibold">Ներկայումս ուղևորություններ չկան։</p>
+                                        <p className="text-[11px]">Փոխիր օրը, ուղղությունը կամ filter-ները՝ նոր առաջարկներ տեսնելու համար։</p>
+                                    </div>
+                                </motion.div>
+                            ) : (
+                                <motion.div key="trips-list" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2, ease: "easeOut" }}>
+                                    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, ease: "easeOut", delay: 0.03 }} className="relative overflow-hidden rounded-3xl border border-emerald-100 bg-gradient-to-br from-sky-50 via-white to-emerald-50 p-4 shadow-sm transition-shadow hover:shadow-md">
+                                        <TripRow t={mainTrip} variant="big" />
+                                    </motion.div>
+
+                                    {otherTrips.length > 0 && (
+                                        <motion.div key="other-trips" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2, ease: "easeOut" }}>
+                                            <div className="flex items-center justify-between">
+                                                <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-400">Այլ ընտրանքներ</p>
+                                            </div>
+
+                                            <div className="flex gap-3 overflow-x-auto pb-1">
+                                                {otherTrips.map((t, i) => (
+                                                    <div key={t.id ?? i} className="min-w-[230px] max-w-[260px] flex-1 overflow-hidden rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm transition-transform duration-150 hover:-translate-y-1 hover:shadow-md">
+                                                        <TripRow t={t} variant="small" />
+                                                    </div>
+                                                ))}
+                                            </div>
                                         </motion.div>
-
-                                        {otherTrips.length > 0 && (
-                                            <motion.div key="other-trips" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2, ease: "easeOut" }}>
-                                                <div className="flex items-center justify-between">
-                                                    <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-400">Այլ ընտրանքներ</p>
-                                                </div>
-
-                                                <div className="flex gap-3 overflow-x-auto pb-1">
-                                                    {otherTrips.map((t, i) => (
-                                                        <div key={t.id ?? i} className="min-w-[230px] max-w-[260px] flex-1 overflow-hidden rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm transition-transform duration-150 hover:-translate-y-1 hover:shadow-md">
-                                                            <TripRow t={t} variant="small" />
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </motion.div>
-                                        )}
-                                    </>
-                                )}
-                            </>
-                        )}
+                                    )}
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
                     </div>
                 </div>
             </motion.div>
